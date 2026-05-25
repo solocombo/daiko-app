@@ -1,15 +1,51 @@
 import { useState } from "react";
 import { supabase } from "../supabaseClient";
 
-export default function BatchList({ batches, orders, onRefresh, onSelectBatch }) {
+const TODAY = new Date().toISOString().split("T")[0];
+
+export default function BatchList({ batches, orders, onRefresh, onSelectBatch, settings }) {
   const [showForm, setShowForm] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [fetchingRate, setFetchingRate] = useState(false);
   const [form, setForm] = useState({
-    name: "", date: "", jpy_rate: 0.21, total_intl_shipping_jpy: 0, absorbed_shipping_twd: 0, note: "",
+    name: "", date: TODAY, jpy_rate: "", total_intl_shipping_jpy: 0, absorbed_shipping_twd: 0, note: "",
   });
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  async function fetchJpyRate() {
+    setFetchingRate(true);
+    try {
+      const res = await fetch("https://api.exchangerate-api.com/v4/latest/JPY");
+      const data = await res.json();
+      const twdPerJpy = data.rates?.TWD;
+      if (twdPerJpy) {
+        set("jpy_rate", parseFloat(twdPerJpy.toFixed(4)));
+      } else {
+        alert("無法取得匯率，請手動輸入");
+      }
+    } catch {
+      alert("匯率 API 連線失敗，請手動輸入");
+    }
+    setFetchingRate(false);
+  }
+
+  function openForm() {
+    setForm({ name: "", date: TODAY, jpy_rate: "", total_intl_shipping_jpy: 0, absorbed_shipping_twd: 0, note: "" });
+    setShowForm(true);
+    // Auto fetch rate when opening form
+    setTimeout(async () => {
+      setFetchingRate(true);
+      try {
+        const res = await fetch("https://api.exchangerate-api.com/v4/latest/JPY");
+        const data = await res.json();
+        const twdPerJpy = data.rates?.TWD;
+        if (twdPerJpy) setForm(f => ({ ...f, jpy_rate: parseFloat(twdPerJpy.toFixed(4)) }));
+      } catch {}
+      setFetchingRate(false);
+    }, 100);
+  }
 
   const activeBatches = batches.filter(b => !b.archived);
   const archivedBatches = batches.filter(b => b.archived);
@@ -17,6 +53,7 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch })
 
   async function saveBatch() {
     if (!form.name || !form.date) return alert("請填寫批次名稱與日期");
+    if (!form.jpy_rate) return alert("請填寫當時匯率");
     setSaving(true);
     const { error } = await supabase.from("batches").insert([{
       name: form.name, date: form.date,
@@ -28,13 +65,11 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch })
     setSaving(false);
     if (error) return alert("儲存失敗：" + error.message);
     setShowForm(false);
-    setForm({ name: "", date: "", jpy_rate: 0.21, total_intl_shipping_jpy: 0, absorbed_shipping_twd: 0, note: "" });
     onRefresh();
   }
 
   async function archiveBatch(id, currentState) {
-    const action = currentState ? "解除封存" : "封存";
-    if (!confirm(`確定${action}這個批次？`)) return;
+    if (!confirm(`確定${currentState ? "解除封存" : "封存"}這個批次？`)) return;
     await supabase.from("batches").update({ archived: !currentState }).eq("id", id);
     onRefresh();
   }
@@ -80,21 +115,18 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch })
       <div className="page-header">
         <div>
           <h1 className="page-title">批次管理</h1>
-          <p className="page-sub">每次日本採購為一個批次</p>
+          <p className="page-sub">每次日本採購為一個批次　代購匯率：{settings.proxy_rate}</p>
         </div>
         <div className="header-actions">
           <button className="btn-secondary" onClick={() => setShowArchived(v => !v)}>
             {showArchived ? "📦 顯示進行中" : `🗄 封存批次${archivedBatches.length > 0 ? ` (${archivedBatches.length})` : ""}`}
           </button>
-          {!showArchived && <button className="btn-primary" onClick={() => setShowForm(true)}>＋ 新增批次</button>}
+          {!showArchived && <button className="btn-primary" onClick={openForm}>＋ 新增批次</button>}
         </div>
       </div>
 
-      {/* 封存說明列 */}
       {showArchived && (
-        <div className="archive-notice">
-          🗄 封存的批次資料完整保留，隨時可以查看或解除封存。確認不需要時才永久刪除。
-        </div>
+        <div className="archive-notice">🗄 封存的批次資料完整保留，隨時可以查看或解除封存。</div>
       )}
 
       {showForm && (
@@ -111,8 +143,20 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch })
               <label className="form-label">採購日期
                 <input className="form-input" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
               </label>
-              <label className="form-label">當時匯率（JPY→TWD）
-                <input className="form-input" type="number" step="0.001" value={form.jpy_rate} onChange={(e) => set("jpy_rate", e.target.value)} />
+              <label className="form-label" style={{ gridColumn: "1/-1" }}>
+                當時匯率（JPY→TWD）
+                <div className="rate-input-row">
+                  <input
+                    className="form-input"
+                    type="number" step="0.0001"
+                    placeholder={fetchingRate ? "抓取中..." : "例：0.2134"}
+                    value={form.jpy_rate}
+                    onChange={(e) => set("jpy_rate", e.target.value)}
+                  />
+                  <button className="btn-fetch-rate" onClick={fetchJpyRate} disabled={fetchingRate}>
+                    {fetchingRate ? "⏳ 抓取中..." : "🔄 自動抓取"}
+                  </button>
+                </div>
               </label>
               <label className="form-label">國際運費總額（日幣 ¥）
                 <input className="form-input" type="number" value={form.total_intl_shipping_jpy} onChange={(e) => set("total_intl_shipping_jpy", e.target.value)} />
@@ -144,7 +188,7 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch })
             const { totalOrders } = batchStats(batch.id);
             return (
               <div key={batch.id} className={`batch-card ${batch.archived ? "batch-archived" : ""}`}
-                onClick={() => !showArchived && onSelectBatch(batch)}>
+                onClick={() => !batch.archived && onSelectBatch(batch)}>
                 <div className="batch-card-header">
                   <div>
                     <div className="batch-name">
@@ -161,7 +205,7 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch })
                     <span className="stat-value">{totalOrders}</span>
                   </div>
                   <div className="stat-item">
-                    <span className="stat-label">匯率</span>
+                    <span className="stat-label">當批匯率</span>
                     <span className="stat-value">{batch.jpy_rate}</span>
                   </div>
                   <div className="stat-item">
@@ -171,20 +215,12 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch })
                 </div>
                 {batch.note && <div className="batch-note">📝 {batch.note}</div>}
                 <div className="batch-card-footer">
-                  {!batch.archived
-                    ? <span className="view-detail">點擊查看詳細 →</span>
-                    : <span className="view-detail" style={{color:"var(--text3)"}}>已封存</span>
-                  }
+                  {!batch.archived ? <span className="view-detail">點擊查看詳細 →</span> : <span className="view-detail" style={{color:"var(--text3)"}}>已封存</span>}
                   <div className="card-actions" onClick={(e) => e.stopPropagation()}>
                     <button className="btn-archive-sm" onClick={() => archiveBatch(batch.id, batch.archived)}>
                       {batch.archived ? "解除封存" : "封存"}
                     </button>
-                    {batch.archived && (
-                      <button className="btn-danger-sm" onClick={() => deleteBatch(batch.id)}>永久刪除</button>
-                    )}
-                    {!batch.archived && (
-                      <button className="btn-danger-sm" onClick={() => deleteBatch(batch.id)}>刪除</button>
-                    )}
+                    <button className="btn-danger-sm" onClick={() => deleteBatch(batch.id)}>刪除</button>
                   </div>
                 </div>
               </div>

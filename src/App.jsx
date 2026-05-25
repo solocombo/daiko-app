@@ -4,18 +4,33 @@ import BatchList from "./components/BatchList";
 import BatchDetail from "./components/BatchDetail";
 import CustomerView from "./components/CustomerView";
 import ProfitDashboard from "./components/ProfitDashboard";
+import Settings from "./components/Settings";
 import "./App.css";
 
+const SETTINGS_KEY = "daiko_settings";
+const DEFAULT_SETTINGS = { proxy_rate: 0.25 };
+
 export default function App() {
-  const [page, setPage] = useState("batches"); // batches | batch-detail | customers | profit
+  const [page, setPage] = useState("batches");
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [batches, setBatches] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const s = localStorage.getItem(SETTINGS_KEY);
+      return s ? { ...DEFAULT_SETTINGS, ...JSON.parse(s) } : DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
 
   useEffect(() => {
     fetchAll();
   }, []);
+
+  function saveSettings(newSettings) {
+    setSettings(newSettings);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
+  }
 
   async function fetchAll() {
     setLoading(true);
@@ -52,6 +67,9 @@ export default function App() {
             <button className={`nav-btn ${page === "profit" ? "active" : ""}`} onClick={() => nav("profit")}>
               <span className="nav-icon">💴</span>利潤總覽
             </button>
+            <button className={`nav-btn ${page === "settings" ? "active" : ""}`} onClick={() => nav("settings")}>
+              <span className="nav-icon">⚙️</span>系統設定
+            </button>
           </nav>
         </div>
       </header>
@@ -65,27 +83,25 @@ export default function App() {
         ) : (
           <>
             {page === "batches" && (
-              <BatchList
-                batches={batches}
-                orders={orders}
-                onRefresh={fetchAll}
-                onSelectBatch={(b) => nav("batch-detail", b)}
-              />
+              <BatchList batches={batches} orders={orders} onRefresh={fetchAll} onSelectBatch={(b) => nav("batch-detail", b)} settings={settings} />
             )}
             {page === "batch-detail" && selectedBatch && (
               <BatchDetail
                 batch={selectedBatch}
                 orders={orders.filter((o) => o.batch_id === selectedBatch.id)}
-                allOrders={orders}
                 onRefresh={fetchAll}
                 onBack={() => nav("batches")}
+                settings={settings}
               />
             )}
             {page === "customers" && (
-              <CustomerView orders={orders} batches={batches} onRefresh={fetchAll} />
+              <CustomerView orders={orders} batches={batches} onRefresh={fetchAll} settings={settings} />
             )}
             {page === "profit" && (
-              <ProfitDashboard batches={batches} orders={orders} />
+              <ProfitDashboard batches={batches} orders={orders} settings={settings} />
+            )}
+            {page === "settings" && (
+              <Settings settings={settings} onSave={saveSettings} />
             )}
           </>
         )}
