@@ -28,10 +28,12 @@ function calcItem(item, jpyRate, proxyRate) {
 
 export default function ProfitDashboard({ batches, orders, settings }) {
   const proxyRate = settings?.proxy_rate || 0.25;
+  const member1 = settings?.member1 || "成員A";
+  const member2 = settings?.member2 || "成員B";
   const [monthFilter, setMonthFilter] = useState("all");
   const [dividends, setDividends] = useState([]);
   const [showDividendForm, setShowDividendForm] = useState(false);
-  const [dividendForm, setDividendForm] = useState({ amount: "", note: "", date: new Date().toISOString().split("T")[0] });
+  const [dividendForm, setDividendForm] = useState({ amount: "", note: "", recipient: "", date: new Date().toISOString().split("T")[0] });
   const [savingDividend, setSavingDividend] = useState(false);
 
   useEffect(() => { fetchDividends(); }, []);
@@ -44,15 +46,15 @@ export default function ProfitDashboard({ batches, orders, settings }) {
   async function saveDividend() {
     if (!dividendForm.amount) return alert("請填寫分紅金額");
     setSavingDividend(true);
-    await supabase.from("dividends").insert([{ amount: parseFloat(dividendForm.amount), note: dividendForm.note, date: dividendForm.date }]);
+    await supabase.from("dividends").insert([{ amount: parseFloat(dividendForm.amount), note: dividendForm.note, recipient: dividendForm.recipient, date: dividendForm.date }]);
     setSavingDividend(false);
     setShowDividendForm(false);
-    setDividendForm({ amount: "", note: "", date: new Date().toISOString().split("T")[0] });
+    setDividendForm({ amount: "", note: "", recipient: "", date: new Date().toISOString().split("T")[0] });
     fetchDividends();
   }
 
   async function deleteDividend(id) {
-    if (!confirm("確定刪除這筆分紅記錄？")) return;
+    if (!confirm("確定刪除這筆提款記錄？")) return;
     await supabase.from("dividends").delete().eq("id", id);
     fetchDividends();
   }
@@ -110,7 +112,7 @@ export default function ProfitDashboard({ batches, orders, settings }) {
       const ratio = totalReceivable > 0 ? Math.round((collectedAmt + collectedShipping) / totalReceivable * 100) : 0;
       rows.push([batch.name, batch.date, totalOrders, Math.round(totalPrice), Math.round(totalRealCost), Math.round(absorbed), Math.round(net), `${ratio}%`]);
     });
-    rows.push([], ["累計淨利", Math.round(overall.net)], ["已分紅", Math.round(totalDividends)], ["未分配", Math.round(undistributed)]);
+    rows.push([], ["累計淨利", Math.round(overall.net)], ["已提款", Math.round(totalDividends)], ["未分配", Math.round(undistributed)]);
     downloadCSV(`DAIKO_利潤_${new Date().toISOString().split("T")[0]}.csv`, rows);
   }
 
@@ -123,7 +125,7 @@ export default function ProfitDashboard({ batches, orders, settings }) {
         </div>
         <div className="header-actions">
           <button className="btn-export" onClick={exportAllCSV}>⬇ 匯出 CSV</button>
-          <button className="btn-primary" onClick={() => setShowDividendForm(true)}>＋ 記錄分紅</button>
+          <button className="btn-primary" onClick={() => setShowDividendForm(true)}>＋ 記錄提款</button>
         </div>
       </div>
 
@@ -157,7 +159,7 @@ export default function ProfitDashboard({ batches, orders, settings }) {
             <div className="summary-value net-big">NT${Math.round(overall.net).toLocaleString()}</div>
           </div>
           <div className="summary-card dividend-card">
-            <div className="summary-label">已分紅</div>
+            <div className="summary-label">已提款</div>
             <div className="summary-value dividend-val">-NT${Math.round(totalDividends).toLocaleString()}</div>
           </div>
           <div className="summary-card undistributed-card">
@@ -169,14 +171,15 @@ export default function ProfitDashboard({ batches, orders, settings }) {
 
       {/* Dividend Records */}
       <div className="dividend-section">
-        <h2 className="section-title">💰 分紅記錄</h2>
+        <h2 className="section-title">💰 提款記錄</h2>
         {dividends.length === 0 ? (
-          <p style={{color:"var(--text3)", fontSize:"13px"}}>還沒有分紅記錄</p>
+          <p style={{color:"var(--text3)", fontSize:"13px"}}>還沒有提款記錄</p>
         ) : (
           <div className="dividend-list">
             {dividends.map(d => (
               <div key={d.id} className="dividend-row">
                 <span className="dividend-date">{d.date}</span>
+                {d.recipient && <span className="dividend-recipient">{d.recipient}</span>}
                 <span className="dividend-note">{d.note || "—"}</span>
                 <span className="dividend-amount">NT${Number(d.amount).toLocaleString()}</span>
                 <button className="btn-danger-sm" onClick={() => deleteDividend(d.id)}>刪除</button>
@@ -236,7 +239,7 @@ export default function ProfitDashboard({ batches, orders, settings }) {
           <div className="formula-row"><span className="formula-label">單件定價</span><span className="formula-eq">= 日幣單價 × {proxyRate}（代購匯率）→ 無條件進位到10元</span></div>
           <div className="formula-row"><span className="formula-label">實際成本</span><span className="formula-eq">= 日幣總價 × 當批匯率 × (1 + 1.5% 手續費 − 1% 回饋)</span></div>
           <div className="formula-row"><span className="formula-label">淨利</span><span className="formula-eq">= 定價總收入 − 實際成本 − 吸收運費</span></div>
-          <div className="formula-row highlight-formula"><span className="formula-label">未分配</span><span className="formula-eq">= 總淨利 − 已分紅金額</span></div>
+          <div className="formula-row highlight-formula"><span className="formula-label">未分配</span><span className="formula-eq">= 總淨利 − 已提款金額</span></div>
         </div>
       </div>
 
@@ -245,23 +248,30 @@ export default function ProfitDashboard({ batches, orders, settings }) {
         <div className="modal-overlay" onClick={() => setShowDividendForm(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>💰 記錄分紅</h2>
+              <h2>💰 記錄提款</h2>
               <button className="modal-close" onClick={() => setShowDividendForm(false)}>✕</button>
             </div>
             <div className="form-grid">
-              <label className="form-label">分紅日期
+              <label className="form-label">日期
                 <input className="form-input" type="date" value={dividendForm.date} onChange={e => setDividendForm(f => ({ ...f, date: e.target.value }))} />
               </label>
               <label className="form-label">金額（NT$）
                 <input className="form-input" type="number" placeholder="例：5000" value={dividendForm.amount} onChange={e => setDividendForm(f => ({ ...f, amount: e.target.value }))} />
               </label>
+              <label className="form-label">給誰
+                <select className="form-input" value={dividendForm.recipient} onChange={e => setDividendForm(f => ({ ...f, recipient: e.target.value }))}>
+                  <option value="">請選擇</option>
+                  <option value={member1}>{member1}</option>
+                  <option value={member2}>{member2}</option>
+                </select>
+              </label>
               <label className="form-label" style={{ gridColumn: "1/-1" }}>備註
-                <input className="form-input" placeholder="例：2024上半年分紅" value={dividendForm.note} onChange={e => setDividendForm(f => ({ ...f, note: e.target.value }))} />
+                <input className="form-input" placeholder="例：分紅、返還墊款..." value={dividendForm.note} onChange={e => setDividendForm(f => ({ ...f, note: e.target.value }))} />
               </label>
             </div>
             <div className="modal-footer">
               <button className="btn-secondary" onClick={() => setShowDividendForm(false)}>取消</button>
-              <button className="btn-primary" onClick={saveDividend} disabled={savingDividend}>{savingDividend ? "儲存中..." : "記錄分紅"}</button>
+              <button className="btn-primary" onClick={saveDividend} disabled={savingDividend}>{savingDividend ? "儲存中..." : "記錄提款"}</button>
             </div>
           </div>
         </div>

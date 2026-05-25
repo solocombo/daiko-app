@@ -244,7 +244,10 @@ export default function CustomerView({ orders, batches, onRefresh, settings }) {
             <div className="shipping-settings">
               <label className="shipping-fee-label">
                 包手費 NT$
-                <input className="form-input shipping-fee-input" type="number" value={packFee} onChange={e => setPackFee(e.target.value)} />
+                <div style={{display:"flex", gap:"8px", alignItems:"center"}}>
+                  <input className="form-input shipping-fee-input" type="number" value={packFee} onChange={e => setPackFee(e.target.value)} />
+                  <button className="btn-free-pack" onClick={() => setPackFee(0)}>免包手</button>
+                </div>
               </label>
               <label className="shipping-fee-label">
                 包材成本 NT$（僅計入成本，不向客人收）

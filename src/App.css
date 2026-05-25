@@ -1004,3 +1004,77 @@ select.form-input { cursor: pointer; }
   padding: 12px;
   margin-bottom: 8px;
 }
+
+/* ── Forwarder page ── */
+.forwarder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.forwarder-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+}
+.forwarder-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.forwarder-name { font-weight: 700; font-size: 15px; color: var(--text); }
+.forwarder-actions { display: flex; gap: 6px; }
+.forwarder-url { display: block; font-size: 12px; color: var(--accent2); margin-bottom: 8px; word-break: break-all; text-decoration: none; }
+.forwarder-url:hover { text-decoration: underline; }
+.forwarder-note { font-size: 12px; color: var(--text2); white-space: pre-wrap; line-height: 1.6; }
+.forwarder-textarea { resize: vertical; min-height: 100px; font-family: var(--font-body); }
+.forwarder-tag { font-size: 11px; color: var(--text3); }
+
+/* ── Forwarder select in order form ── */
+.forwarder-select-row { display: flex; gap: 8px; align-items: center; }
+.forwarder-select-row select { flex: 1; }
+.btn-go-forwarder {
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text3);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.btn-go-forwarder:hover { border-color: var(--accent2); color: var(--accent2); }
+
+/* ── Free pack button ── */
+.btn-free-pack {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text3);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.btn-free-pack:hover { border-color: var(--green); color: var(--green); }
+
+/* ── Payment record btn in table ── */
+.btn-record-payment-sm {
+  background: rgba(62,207,142,0.12);
+  border: 1px solid rgba(62,207,142,0.35);
+  color: var(--green);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-right: 4px;
+  transition: all 0.15s;
+}
+.btn-record-payment-sm:hover { background: rgba(62,207,142,0.25); }
+
+/* ── Dividend recipient tag ── */
+.dividend-recipient {
+  background: rgba(91,141,238,0.15);
+  color: var(--accent2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Settings divider ── */
+.settings-divider { height: 1px; background: var(--border); margin: 20px 0; }

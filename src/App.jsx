@@ -5,16 +5,18 @@ import BatchDetail from "./components/BatchDetail";
 import CustomerView from "./components/CustomerView";
 import ProfitDashboard from "./components/ProfitDashboard";
 import Settings from "./components/Settings";
+import Forwarders from "./components/Forwarders";
 import "./App.css";
 
 const SETTINGS_KEY = "daiko_settings";
-const DEFAULT_SETTINGS = { proxy_rate: 0.25 };
+const DEFAULT_SETTINGS = { proxy_rate: 0.25, member1: "成員A", member2: "成員B" };
 
 export default function App() {
   const [page, setPage] = useState("batches");
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [batches, setBatches] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [forwarders, setForwarders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(() => {
     try {
@@ -23,9 +25,7 @@ export default function App() {
     } catch { return DEFAULT_SETTINGS; }
   });
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   function saveSettings(newSettings) {
     setSettings(newSettings);
@@ -34,12 +34,14 @@ export default function App() {
 
   async function fetchAll() {
     setLoading(true);
-    const [{ data: b }, { data: o }] = await Promise.all([
+    const [{ data: b }, { data: o }, { data: f }] = await Promise.all([
       supabase.from("batches").select("*").order("created_at", { ascending: false }),
       supabase.from("orders").select("*, order_items(*)").order("created_at", { ascending: false }),
+      supabase.from("forwarders").select("*").order("name"),
     ]);
     setBatches(b || []);
     setOrders(o || []);
+    setForwarders(f || []);
     setLoading(false);
   }
 
@@ -65,7 +67,10 @@ export default function App() {
               <span className="nav-icon">👤</span>客人追蹤
             </button>
             <button className={`nav-btn ${page === "profit" ? "active" : ""}`} onClick={() => nav("profit")}>
-              <span className="nav-icon">💴</span>利潤總覽
+              <span className="nav-icon">💴</span>提款記錄
+            </button>
+            <button className={`nav-btn ${page === "forwarders" ? "active" : ""}`} onClick={() => nav("forwarders")}>
+              <span className="nav-icon">🚚</span>集運商
             </button>
             <button className={`nav-btn ${page === "settings" ? "active" : ""}`} onClick={() => nav("settings")}>
               <span className="nav-icon">⚙️</span>系統設定
@@ -76,33 +81,25 @@ export default function App() {
 
       <main className="main">
         {loading ? (
-          <div className="loading">
-            <div className="loading-spinner" />
-            <p>載入中...</p>
-          </div>
+          <div className="loading"><div className="loading-spinner" /><p>載入中...</p></div>
         ) : (
           <>
-            {page === "batches" && (
-              <BatchList batches={batches} orders={orders} onRefresh={fetchAll} onSelectBatch={(b) => nav("batch-detail", b)} settings={settings} />
-            )}
+            {page === "batches" && <BatchList batches={batches} orders={orders} onRefresh={fetchAll} onSelectBatch={(b) => nav("batch-detail", b)} settings={settings} />}
             {page === "batch-detail" && selectedBatch && (
               <BatchDetail
                 batch={selectedBatch}
-                orders={orders.filter((o) => o.batch_id === selectedBatch.id)}
+                orders={orders.filter(o => o.batch_id === selectedBatch.id)}
+                forwarders={forwarders}
                 onRefresh={fetchAll}
                 onBack={() => nav("batches")}
                 settings={settings}
+                onGoForwarders={() => nav("forwarders")}
               />
             )}
-            {page === "customers" && (
-              <CustomerView orders={orders} batches={batches} onRefresh={fetchAll} settings={settings} />
-            )}
-            {page === "profit" && (
-              <ProfitDashboard batches={batches} orders={orders} settings={settings} />
-            )}
-            {page === "settings" && (
-              <Settings settings={settings} onSave={saveSettings} />
-            )}
+            {page === "customers" && <CustomerView orders={orders} batches={batches} onRefresh={fetchAll} settings={settings} />}
+            {page === "profit" && <ProfitDashboard batches={batches} orders={orders} settings={settings} />}
+            {page === "forwarders" && <Forwarders forwarders={forwarders} onRefresh={fetchAll} />}
+            {page === "settings" && <Settings settings={settings} onSave={saveSettings} />}
           </>
         )}
       </main>

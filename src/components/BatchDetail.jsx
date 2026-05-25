@@ -28,7 +28,7 @@ function calcItem(item, jpyRate, proxyRate) {
   return { qty, jpyUnit, jpyTotal, costTwd, ccFee, ccRebate, realCost, unitPrice, totalPrice, profit };
 }
 
-export default function BatchDetail({ batch, orders, onRefresh, onBack, settings }) {
+export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBack, settings, onGoForwarders }) {
   const proxyRate = settings?.proxy_rate || 0.25;
   const jpyRate = batch.jpy_rate;
 
@@ -44,7 +44,7 @@ export default function BatchDetail({ batch, orders, onRefresh, onBack, settings
   const [allPayments, setAllPayments] = useState({});
   const [saving, setSaving] = useState(false);
 
-  const emptyForm = { customer: "", payment_method: "虛擬帳戶轉帳", items: [{ name: "", jpy_price: "", quantity: 1, weight_g: "" }], note: "" };
+  const emptyForm = { customer: "", payment_method: "虛擬帳戶轉帳", forwarder_id: "", items: [{ name: "", jpy_price: "", quantity: 1, weight_g: "" }], note: "" };
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => { fetchAllPayments(); }, [orders]);
@@ -99,6 +99,7 @@ export default function BatchDetail({ batch, orders, onRefresh, onBack, settings
     setForm({
       customer: order.customer,
       payment_method: order.payment_method || "虛擬帳戶轉帳",
+      forwarder_id: order.forwarder_id || "",
       items: order.order_items?.map(i => ({ name: i.name, jpy_price: i.jpy_price, quantity: i.quantity || 1, weight_g: i.weight_g, not_obtained: i.not_obtained || false })) || [{ name: "", jpy_price: "", quantity: 1, weight_g: "" }],
       note: order.note || "",
     });
@@ -112,11 +113,12 @@ export default function BatchDetail({ batch, orders, onRefresh, onBack, settings
     try {
       let orderId = editingOrder?.id;
       if (editingOrder) {
-        await supabase.from("orders").update({ customer: form.customer, payment_method: form.payment_method, note: form.note }).eq("id", orderId);
+        await supabase.from("orders").update({ customer: form.customer, payment_method: form.payment_method, forwarder_id: form.forwarder_id || null, note: form.note }).eq("id", orderId);
         await supabase.from("order_items").delete().eq("order_id", orderId);
       } else {
         const { data, error } = await supabase.from("orders").insert([{
           batch_id: batch.id, customer: form.customer, payment_method: form.payment_method,
+          forwarder_id: form.forwarder_id || null,
           product_paid: false, shipping_paid: false, shipping_twd: 0, note: form.note,
         }]).select().single();
         if (error) throw error;
@@ -263,82 +265,84 @@ export default function BatchDetail({ batch, orders, onRefresh, onBack, settings
         <div className="profit-item highlight"><span className="profit-label">淨利</span><span className="profit-value net">NT${Math.round(profit.net).toLocaleString()}</span></div>
       </div>
 
-      {/* Orders - card layout instead of wide table */}
+      {/* Orders Table */}
       {orders.length === 0 ? (
         <div className="empty-state"><div className="empty-icon">🛒</div><p>這個批次還沒有訂單</p></div>
       ) : (
-        <div className="order-cards">
-          {orders.map((order) => {
-            const activeItems = (order.order_items || []).filter(i => !i.not_obtained);
-            const totalOrderPrice = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).totalPrice, 0);
-            const totalProfit = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).profit, 0);
-            const due = orderTotalDue(order);
-            const paid = orderPaid(order.id);
-            const remaining = due - paid;
-            const isFullyPaid = paid >= due && due > 0;
-            return (
-              <div key={order.id} className={`order-card ${isFullyPaid ? "order-card-done" : ""}`}>
-                {/* Card header */}
-                <div className="order-card-header">
-                  <div className="order-card-customer">
-                    <span className="customer-name">{order.customer}</span>
-                    <span className={`method-tag ${order.payment_method === "取付" ? "method-cod" : ""}`}>{order.payment_method}</span>
-                    {order.note && <span className="order-note">📝 {order.note}</span>}
-                  </div>
-                  <div className="order-card-actions">
-                    <button className="btn-edit-sm" onClick={() => openEdit(order)}>編輯</button>
-                    <button className="btn-danger-sm" onClick={() => deleteOrder(order.id)}>刪除</button>
-                  </div>
-                </div>
-
-                {/* Items */}
-                <div className="order-card-body">
-                  <div className="order-items-cols">
-                    <div className="order-items-list">
-                      {(order.order_items || []).map((item, idx) => {
-                        const c = item.not_obtained ? null : calcItem(item, jpyRate, proxyRate);
-                        return (
-                          <div key={idx} className={`order-item-row ${item.not_obtained ? "item-not-obtained" : ""}`}>
-                            <span className="order-item-name">{item.name}</span>
-                            {item.not_obtained
-                              ? <span className="not-obtained-badge">未搶到</span>
-                              : <>
-                                  <span className="order-item-detail">× {c.qty}　¥{c.jpyUnit.toLocaleString()}　→　NT${c.unitPrice.toLocaleString()} × {c.qty} = <strong>NT${c.totalPrice.toLocaleString()}</strong></span>
-                                  <span className="order-item-profit net-text">+NT${Math.round(c.profit).toLocaleString()}</span>
-                                </>
-                            }
+        <div className="orders-table-wrap">
+          <table className="orders-table">
+            <thead>
+              <tr>
+                <th>客人</th><th>商品</th><th>數量</th><th>日幣單價</th>
+                <th>成本</th><th>手續費</th><th>回饋</th><th>實際成本</th>
+                <th>單件定價</th><th>定價合計</th><th>利潤</th>
+                <th>重量</th><th>集運商</th><th>運費尾款</th><th>付款方式</th>
+                <th>應收</th><th>已付</th><th>尚欠</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => {
+                const activeItems = (order.order_items || []).filter(i => !i.not_obtained);
+                const totalOrderPrice = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).totalPrice, 0);
+                const totalProfit = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).profit, 0);
+                const due = orderTotalDue(order);
+                const paid = orderPaid(order.id);
+                const remaining = due - paid;
+                const isFullyPaid = paid >= due && due > 0;
+                const fwName = forwarders.find(f => f.id === order.forwarder_id)?.name || "—";
+                return (
+                  <tr key={order.id} className={isFullyPaid ? "row-done" : ""}>
+                    <td>
+                      <div className="customer-name">{order.customer}</div>
+                      {order.note && <div className="order-note">📝 {order.note}</div>}
+                    </td>
+                    <td>
+                      <div className="item-list-detail">
+                        {(order.order_items || []).map((item, idx) => (
+                          <div key={idx} className={`item-detail-row ${item.not_obtained ? "item-not-obtained" : ""}`}>
+                            <span className="item-detail-name">{item.name}</span>
+                            {item.not_obtained && <span className="not-obtained-badge">未搶到</span>}
                             <button className={`btn-not-obtained ${item.not_obtained ? "active" : ""}`} onClick={() => toggleNotObtained(item.id, item.not_obtained)}>
-                              {item.not_obtained ? "↩ 恢復" : "✕ 未搶"}
+                              {item.not_obtained ? "↩" : "✕"}
                             </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                    {/* Calc summary column */}
-                    <div className="order-calc-col">
-                      <div className="calc-row"><span className="calc-label">定價合計</span><span className="twd-text">NT${Math.round(totalOrderPrice).toLocaleString()}</span></div>
-                      <div className="calc-row"><span className="calc-label">運費尾款</span><span>{order.shipping_twd > 0 ? `NT$${Math.round(order.shipping_twd).toLocaleString()}` : "—"}</span></div>
-                      <div className="calc-row"><span className="calc-label">利潤</span><span className="net-text">NT${Math.round(totalProfit).toLocaleString()}</span></div>
-                    </div>
-                  </div>
-
-                  {/* Payment summary */}
-                  <div className="order-payment-row">
-                    <div className="payment-summary">
-                      <span className="pay-summary-item">應收 <strong>NT${due.toLocaleString()}</strong></span>
-                      <span className="pay-summary-item">已付 <strong className="net-text">NT${Math.round(paid).toLocaleString()}</strong></span>
-                      <span className={`pay-summary-item ${remaining > 0 ? "neg-text" : "net-text"}`}>
-                        {remaining > 0 ? `尚欠 NT$${Math.round(remaining).toLocaleString()}` : "✓ 已結清"}
-                      </span>
-                    </div>
-                    <button className="btn-record-payment" onClick={() => openPaymentModal(order)}>
-                      💳 記錄收款
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                        ))}
+                      </div>
+                    </td>
+                    <td className="center">{activeItems.reduce((s, i) => s + (Number(i.quantity) || 1), 0)}</td>
+                    <td className="number">
+                      {activeItems.map((i, idx) => <div key={idx} className="multi-val">¥{Number(i.jpy_price).toLocaleString()}</div>)}
+                    </td>
+                    <td className="number">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).costTwd, 0)).toLocaleString()}</td>
+                    <td className="number neg">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).ccFee, 0)).toLocaleString()}</td>
+                    <td className="number green">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).ccRebate, 0)).toLocaleString()}</td>
+                    <td className="number">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).realCost, 0)).toLocaleString()}</td>
+                    <td className="number">
+                      {activeItems.map((i, idx) => <div key={idx} className="multi-val">NT${calcItem(i, jpyRate, proxyRate).unitPrice.toLocaleString()}</div>)}
+                    </td>
+                    <td className="number twd">NT${Math.round(totalOrderPrice).toLocaleString()}</td>
+                    <td className="number net">NT${Math.round(totalProfit).toLocaleString()}</td>
+                    <td className="center">{activeItems.reduce((s, i) => s + Number(i.weight_g || 0), 0)}g</td>
+                    <td className="center"><span className="forwarder-tag">{fwName}</span></td>
+                    <td className="number">{order.shipping_twd > 0 ? `NT$${Math.round(order.shipping_twd).toLocaleString()}` : "—"}</td>
+                    <td className="center">
+                      <span className={`method-tag ${order.payment_method === "取付" ? "method-cod" : ""}`}>{order.payment_method}</span>
+                    </td>
+                    <td className="number">NT${due.toLocaleString()}</td>
+                    <td className="number net">NT${Math.round(paid).toLocaleString()}</td>
+                    <td className={`number ${remaining > 0 ? "neg" : "net"}`}>
+                      {remaining > 0 ? `NT$${Math.round(remaining).toLocaleString()}` : "✓"}
+                    </td>
+                    <td className="center">
+                      <button className="btn-record-payment-sm" onClick={() => openPaymentModal(order)}>💳</button>
+                      <button className="btn-edit-sm" onClick={() => openEdit(order)}>編輯</button>
+                      <button className="btn-danger-sm" onClick={() => deleteOrder(order.id)}>刪除</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -434,6 +438,15 @@ export default function BatchDetail({ batch, orders, onRefresh, onBack, settings
                 <select className="form-input" value={form.payment_method} onChange={e => setFormField("payment_method", e.target.value)}>
                   {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
                 </select>
+              </label>
+              <label className="form-label" style={{gridColumn:"1/-1"}}>集運商
+                <div className="forwarder-select-row">
+                  <select className="form-input" value={form.forwarder_id} onChange={e => setFormField("forwarder_id", e.target.value)}>
+                    <option value="">未指定</option>
+                    {forwarders.map(fw => <option key={fw.id} value={fw.id}>{fw.name}</option>)}
+                  </select>
+                  <button type="button" className="btn-go-forwarder" onClick={onGoForwarders}>＋ 管理集運商</button>
+                </div>
               </label>
               <label className="form-label" style={{gridColumn:"1/-1"}}>備註
                 <input className="form-input" placeholder="特殊說明、取付地點等" value={form.note} onChange={e => setFormField("note", e.target.value)} />
