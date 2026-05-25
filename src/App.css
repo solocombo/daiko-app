@@ -1100,3 +1100,94 @@ select.form-input { cursor: pointer; }
   border-radius: 4px;
   background: var(--surface2);
 }
+
+/* ── Summary button ── */
+.btn-summary {
+  background: rgba(232,160,69,0.12);
+  border: 1px solid rgba(232,160,69,0.4);
+  color: var(--accent);
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.btn-summary:hover { background: rgba(232,160,69,0.22); }
+
+/* ── Summary modal ── */
+.modal-summary {
+  max-width: 700px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.summary-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0;
+}
+.summary-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.summary-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.summary-customer { font-weight: 700; font-size: 15px; color: var(--text); }
+.summary-items {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.summary-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  gap: 8px;
+}
+.summary-item-name { color: var(--text); flex: 1; }
+.summary-item-calc { color: var(--text2); font-family: var(--font-mono); white-space: nowrap; }
+.summary-item-calc strong { color: var(--text); }
+.summary-totals {
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.summary-total-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text2);
+}
+.summary-owed {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  padding-top: 4px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+.summary-collect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(62,207,142,0.05);
+}
+.summary-collect-label { font-size: 13px; color: var(--text3); white-space: nowrap; }
+.summary-collect-input { flex: 1; max-width: 140px; }
+.summary-collect-btn { white-space: nowrap; }

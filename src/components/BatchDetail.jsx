@@ -97,6 +97,8 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   const [savingPayment, setSavingPayment] = useState(false);
   const [allPayments, setAllPayments] = useState({});
   const [saving, setSaving] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryPayments, setSummaryPayments] = useState({}); // orderId -> input amount
 
   const defaultShopId = batch.shop_id || "";
   const emptyForm = { customer: "", payment_method: "虛擬帳戶轉帳", forwarder_id: "", items: [{ name: "", jpy_price: "", quantity: 1, weight_g: "", shop_id: defaultShopId }], note: "" };
@@ -322,6 +324,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
           </p>
         </div>
         <div className="header-actions">
+          <button className="btn-summary" onClick={() => setShowSummary(true)}>📋 收款統計</button>
           <button className="btn-export" onClick={exportBatchCSV}>⬇ 匯出 CSV</button>
           <button className="btn-secondary" onClick={() => setShowShippingCalc(true)}>⚖️ 運費分攤</button>
           <button className="btn-primary" onClick={() => { setEditingOrder(null); setForm({...emptyForm, items:[{name:"",jpy_price:"",quantity:1,weight_g:"",shop_id:defaultShopId}]}); setShowOrderForm(true); }}>＋ 新增訂單</button>
@@ -609,6 +612,86 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
           </div>
         </div>
       )}
+
+      {/* ── Summary Modal ── */}
+      {showSummary && (
+        <div className="modal-overlay" onClick={() => setShowSummary(false)}>
+          <div className="modal modal-summary" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>📋 收款統計　{batch.name}</h2>
+                <p style={{fontSize:"12px", color:"var(--text3)", marginTop:"4px"}}>僅統計商品款項，運費尾款請另行處理</p>
+              </div>
+              <button className="modal-close" onClick={() => setShowSummary(false)}>✕</button>
+            </div>
+            <div className="summary-cards">
+              {orders.map(order => {
+                const activeItems = (order.order_items || []).filter(i => !i.not_obtained);
+                if (activeItems.length === 0) return null;
+                const productTotal = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).totalPrice, 0);
+                const alreadyPaid = orderPaid(order.id);
+                const owed = Math.max(0, productTotal - alreadyPaid);
+                const inputAmt = summaryPayments[order.id] ?? (owed > 0 ? String(Math.round(owed)) : "0");
+
+                async function recordSummaryPayment(orderId, amount) {
+                  if (!amount || Number(amount) <= 0) return alert("請填寫金額");
+                  await supabase.from("payment_records").insert([{
+                    order_id: orderId, amount: Number(amount),
+                    note: "收款統計記錄", paid_at: new Date().toISOString().split("T")[0],
+                  }]);
+                  const { data } = await supabase.from("payment_records").select("*").eq("order_id", orderId);
+                  const total = (data || []).reduce((s, p) => s + Number(p.amount), 0);
+                  if (total >= orderTotalDue(order)) {
+                    await supabase.from("orders").update({ product_paid: true, shipping_paid: true }).eq("id", orderId);
+                  }
+                  setSummaryPayments(prev => ({ ...prev, [orderId]: "" }));
+                  fetchAllPayments(); onRefresh();
+                }
+
+                return (
+                  <div key={order.id} className="summary-card">
+                    <div className="summary-card-header">
+                      <span className="summary-customer">{order.customer}</span>
+                      <span className={`method-tag ${order.payment_method === "取付" ? "method-cod" : ""}`}>{order.payment_method}</span>
+                    </div>
+                    <div className="summary-items">
+                      {activeItems.map((item, idx) => {
+                        const c = calcItem(item, jpyRate, proxyRate);
+                        return (
+                          <div key={idx} className="summary-item-row">
+                            <span className="summary-item-name">{item.name}</span>
+                            <span className="summary-item-calc">
+                              NT${c.unitPrice.toLocaleString()} × {c.qty} = <strong>NT${c.totalPrice.toLocaleString()}</strong>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="summary-totals">
+                      <div className="summary-total-row"><span>商品總額</span><span className="twd-text">NT${Math.round(productTotal).toLocaleString()}</span></div>
+                      {alreadyPaid > 0 && <div className="summary-total-row"><span>已付</span><span className="net-text">-NT${Math.round(alreadyPaid).toLocaleString()}</span></div>}
+                      <div className="summary-total-row summary-owed"><span>尚欠</span><span className={owed > 0 ? "neg-text" : "net-text"}>{owed > 0 ? `NT$${Math.round(owed).toLocaleString()}` : "✓ 已結清"}</span></div>
+                    </div>
+                    {owed > 0 && (
+                      <div className="summary-collect-row">
+                        <span className="summary-collect-label">此次收款</span>
+                        <input
+                          className="form-input summary-collect-input"
+                          type="number"
+                          value={inputAmt}
+                          onChange={e => setSummaryPayments(prev => ({ ...prev, [order.id]: e.target.value }))}
+                        />
+                        <button className="btn-primary summary-collect-btn" onClick={() => recordSummaryPayment(order.id, inputAmt)}>記錄</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
