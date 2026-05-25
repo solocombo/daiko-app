@@ -28,10 +28,64 @@ function calcItem(item, jpyRate, proxyRate) {
   return { qty, jpyUnit, jpyTotal, costTwd, ccFee, ccRebate, realCost, unitPrice, totalPrice, profit };
 }
 
-export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBack, settings, onGoForwarders }) {
+const TODAY = new Date().toISOString().split("T")[0];
+
+export default function BatchDetail({ batch, orders, forwarders, shops, onRefresh, onBack, settings, onGoForwarders, onGoShops }) {
   const proxyRate = settings?.proxy_rate || 0.25;
   const jpyRate = batch.jpy_rate;
+  const shippingRate = batch.shipping_rate || batch.jpy_rate; // fallback to jpy_rate
 
+  // ── Batch edit state ──────────────────────────────────────────────────────
+  const [showBatchEdit, setShowBatchEdit] = useState(false);
+  const [batchForm, setBatchForm] = useState({});
+  const [savingBatch, setSavingBatch] = useState(false);
+  const [fetchingRate, setFetchingRate] = useState(false);
+
+  function openBatchEdit() {
+    setBatchForm({
+      name: batch.name,
+      date: batch.date,
+      jpy_rate: batch.jpy_rate,
+      shipping_rate: batch.shipping_rate || batch.jpy_rate,
+      total_intl_shipping_jpy: batch.total_intl_shipping_jpy || 0,
+      absorbed_shipping_twd: batch.absorbed_shipping_twd || 0,
+      shop_id: batch.shop_id || "",
+      note: batch.note || "",
+    });
+    setShowBatchEdit(true);
+  }
+
+  async function fetchRate(field) {
+    setFetchingRate(field);
+    try {
+      const res = await fetch("https://api.exchangerate-api.com/v4/latest/JPY");
+      const data = await res.json();
+      const rate = data.rates?.TWD;
+      if (rate) setBatchForm(f => ({ ...f, [field]: parseFloat(rate.toFixed(4)) }));
+      else alert("無法取得匯率，請手動輸入");
+    } catch { alert("匯率 API 連線失敗"); }
+    setFetchingRate(null);
+  }
+
+  async function saveBatch() {
+    if (!batchForm.name || !batchForm.date) return alert("請填寫批次名稱與日期");
+    setSavingBatch(true);
+    await supabase.from("batches").update({
+      name: batchForm.name,
+      date: batchForm.date,
+      jpy_rate: parseFloat(batchForm.jpy_rate),
+      shipping_rate: parseFloat(batchForm.shipping_rate),
+      total_intl_shipping_jpy: parseFloat(batchForm.total_intl_shipping_jpy) || 0,
+      absorbed_shipping_twd: parseFloat(batchForm.absorbed_shipping_twd) || 0,
+      shop_id: batchForm.shop_id || null,
+      note: batchForm.note,
+    }).eq("id", batch.id);
+    setSavingBatch(false);
+    setShowBatchEdit(false);
+    onRefresh();
+  }
+
+  // ── Order state ───────────────────────────────────────────────────────────
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
   const [showShippingCalc, setShowShippingCalc] = useState(false);
@@ -44,20 +98,18 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
   const [allPayments, setAllPayments] = useState({});
   const [saving, setSaving] = useState(false);
 
-  const emptyForm = { customer: "", payment_method: "虛擬帳戶轉帳", forwarder_id: "", items: [{ name: "", jpy_price: "", quantity: 1, weight_g: "" }], note: "" };
+  const defaultShopId = batch.shop_id || "";
+  const emptyForm = { customer: "", payment_method: "虛擬帳戶轉帳", forwarder_id: "", items: [{ name: "", jpy_price: "", quantity: 1, weight_g: "", shop_id: defaultShopId }], note: "" };
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => { fetchAllPayments(); }, [orders]);
 
   async function fetchAllPayments() {
     if (!orders.length) return;
-    const orderIds = orders.map(o => o.id);
-    const { data } = await supabase.from("payment_records").select("*").in("order_id", orderIds).order("created_at");
+    const ids = orders.map(o => o.id);
+    const { data } = await supabase.from("payment_records").select("*").in("order_id", ids).order("created_at");
     const map = {};
-    (data || []).forEach(p => {
-      if (!map[p.order_id]) map[p.order_id] = [];
-      map[p.order_id].push(p);
-    });
+    (data || []).forEach(p => { if (!map[p.order_id]) map[p.order_id] = []; map[p.order_id].push(p); });
     setAllPayments(map);
   }
 
@@ -68,13 +120,13 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
 
   const shippingPerOrder = useMemo(() => {
     if (!batch.total_intl_shipping_jpy || totalWeightG === 0) return {};
-    const totalShippingTwd = batch.total_intl_shipping_jpy * jpyRate;
+    const totalShippingTwd = batch.total_intl_shipping_jpy * shippingRate;
     return orders.reduce((acc, o) => {
       const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0), 0);
       acc[o.id] = totalWeightG > 0 ? (w / totalWeightG) * totalShippingTwd : 0;
       return acc;
     }, {});
-  }, [orders, batch, totalWeightG, jpyRate]);
+  }, [orders, batch, totalWeightG, shippingRate]);
 
   function orderTotalDue(order) {
     const activeItems = (order.order_items || []).filter(i => !i.not_obtained);
@@ -91,7 +143,7 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
   const setItem = (idx, k, v) => setForm(f => {
     const items = [...f.items]; items[idx] = { ...items[idx], [k]: v }; return { ...f, items };
   });
-  const addItem = () => setForm(f => ({ ...f, items: [...f.items, { name: "", jpy_price: "", quantity: 1, weight_g: "" }] }));
+  const addItem = () => setForm(f => ({ ...f, items: [...f.items, { name: "", jpy_price: "", quantity: 1, weight_g: "", shop_id: defaultShopId }] }));
   const removeItem = (idx) => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
 
   function openEdit(order) {
@@ -100,7 +152,11 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
       customer: order.customer,
       payment_method: order.payment_method || "虛擬帳戶轉帳",
       forwarder_id: order.forwarder_id || "",
-      items: order.order_items?.map(i => ({ name: i.name, jpy_price: i.jpy_price, quantity: i.quantity || 1, weight_g: i.weight_g, not_obtained: i.not_obtained || false })) || [{ name: "", jpy_price: "", quantity: 1, weight_g: "" }],
+      items: order.order_items?.map(i => ({
+        name: i.name, jpy_price: i.jpy_price, quantity: i.quantity || 1,
+        weight_g: i.weight_g, not_obtained: i.not_obtained || false,
+        shop_id: i.shop_id || defaultShopId,
+      })) || [{ name: "", jpy_price: "", quantity: 1, weight_g: "", shop_id: defaultShopId }],
       note: order.note || "",
     });
     setShowOrderForm(true);
@@ -113,7 +169,10 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
     try {
       let orderId = editingOrder?.id;
       if (editingOrder) {
-        await supabase.from("orders").update({ customer: form.customer, payment_method: form.payment_method, forwarder_id: form.forwarder_id || null, note: form.note }).eq("id", orderId);
+        await supabase.from("orders").update({
+          customer: form.customer, payment_method: form.payment_method,
+          forwarder_id: form.forwarder_id || null, note: form.note,
+        }).eq("id", orderId);
         await supabase.from("order_items").delete().eq("order_id", orderId);
       } else {
         const { data, error } = await supabase.from("orders").insert([{
@@ -125,7 +184,12 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
         orderId = data.id;
       }
       await supabase.from("order_items").insert(
-        form.items.map(i => ({ order_id: orderId, name: i.name, jpy_price: Number(i.jpy_price), quantity: Number(i.quantity) || 1, weight_g: Number(i.weight_g) || 0, not_obtained: i.not_obtained || false }))
+        form.items.map(i => ({
+          order_id: orderId, name: i.name, jpy_price: Number(i.jpy_price),
+          quantity: Number(i.quantity) || 1, weight_g: Number(i.weight_g) || 0,
+          not_obtained: i.not_obtained || false,
+          shop_id: i.shop_id || null,
+        }))
       );
       setShowOrderForm(false); setEditingOrder(null); setForm(emptyForm);
       onRefresh();
@@ -169,25 +233,18 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
     if (!paymentAmount || Number(paymentAmount) <= 0) return alert("請填寫付款金額");
     setSavingPayment(true);
     await supabase.from("payment_records").insert([{
-      order_id: paymentOrder.id,
-      amount: Number(paymentAmount),
-      note: paymentNote,
-      paid_at: new Date().toISOString().split("T")[0],
+      order_id: paymentOrder.id, amount: Number(paymentAmount),
+      note: paymentNote, paid_at: TODAY,
     }]);
-    // Refresh records
     const { data } = await supabase.from("payment_records").select("*").eq("order_id", paymentOrder.id).order("created_at");
     setPaymentRecords(data || []);
-    // Check if fully paid
     const totalPaid = (data || []).reduce((s, p) => s + Number(p.amount), 0);
-    const due = orderTotalDue(paymentOrder);
-    if (totalPaid >= due) {
+    if (totalPaid >= orderTotalDue(paymentOrder)) {
       await supabase.from("orders").update({ product_paid: true, shipping_paid: true }).eq("id", paymentOrder.id);
     }
-    setPaymentAmount("");
-    setPaymentNote("");
+    setPaymentAmount(""); setPaymentNote("");
     setSavingPayment(false);
-    fetchAllPayments();
-    onRefresh();
+    fetchAllPayments(); onRefresh();
   }
 
   async function deletePaymentRecord(id) {
@@ -195,14 +252,11 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
     await supabase.from("payment_records").delete().eq("id", id);
     const { data } = await supabase.from("payment_records").select("*").eq("order_id", paymentOrder.id).order("created_at");
     setPaymentRecords(data || []);
-    // Recheck paid status
     const totalPaid = (data || []).reduce((s, p) => s + Number(p.amount), 0);
-    const due = orderTotalDue(paymentOrder);
-    if (totalPaid < due) {
+    if (totalPaid < orderTotalDue(paymentOrder)) {
       await supabase.from("orders").update({ product_paid: false, shipping_paid: false }).eq("id", paymentOrder.id);
     }
-    fetchAllPayments();
-    onRefresh();
+    fetchAllPayments(); onRefresh();
   }
 
   // ── Profit ────────────────────────────────────────────────────────────────
@@ -219,20 +273,27 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
     return { totalRealCost, totalPrice, absorbed, net };
   }, [orders, batch, jpyRate, proxyRate]);
 
-  // ── CSV Export ────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const getShopName = (id) => shops.find(s => s.id === id)?.name || "—";
+  const getFwName = (id) => forwarders.find(f => f.id === id)?.name || "—";
+  const batchShopName = getShopName(batch.shop_id);
+
+  // ── CSV ───────────────────────────────────────────────────────────────────
   function exportBatchCSV() {
-    const header = ["客人","商品","數量","日幣單價","成本台幣","手續費","回饋","實際成本","單件定價","定價總計","利潤","重量","運費尾款","應收總計","已付","尚欠","付款方式","備註"];
+    const header = ["客人","商品","購買網站","數量","日幣單價","成本台幣","手續費","回饋","實際成本","單件定價","定價總計","利潤","重量","集運商","運費尾款","應收","已付","尚欠","付款方式","備註"];
     const rows = [header];
     orders.forEach(o => {
       const due = orderTotalDue(o);
       const paid = orderPaid(o.id);
+      const fwName = getFwName(o.forwarder_id);
       const activeItems = (o.order_items || []).filter(i => !i.not_obtained);
       activeItems.forEach((item, idx) => {
         const c = calcItem(item, jpyRate, proxyRate);
         rows.push([
-          idx === 0 ? o.customer : "", item.name, c.qty, c.jpyUnit,
-          Math.round(c.costTwd), Math.round(c.ccFee), Math.round(c.ccRebate), Math.round(c.realCost),
-          c.unitPrice, c.totalPrice, Math.round(c.profit), item.weight_g || 0,
+          idx === 0 ? o.customer : "", item.name, getShopName(item.shop_id),
+          c.qty, c.jpyUnit, Math.round(c.costTwd), Math.round(c.ccFee), Math.round(c.ccRebate),
+          Math.round(c.realCost), c.unitPrice, c.totalPrice, Math.round(c.profit), item.weight_g || 0,
+          idx === 0 ? fwName : "",
           idx === 0 ? Math.round(o.shipping_twd || 0) : "",
           idx === 0 ? due : "", idx === 0 ? Math.round(paid) : "", idx === 0 ? Math.max(0, due - paid) : "",
           idx === 0 ? o.payment_method : "", idx === 0 ? (o.note || "") : "",
@@ -247,13 +308,23 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
       <div className="page-header">
         <div>
           <button className="btn-back" onClick={onBack}>← 返回批次列表</button>
-          <h1 className="page-title">{batch.name}</h1>
-          <p className="page-sub">{batch.date}　當批匯率 <strong>{jpyRate}</strong>　代購匯率 <strong>{proxyRate}</strong>　國際運費 ¥{Number(batch.total_intl_shipping_jpy).toLocaleString()}</p>
+          <div style={{display:"flex", alignItems:"center", gap:"10px", flexWrap:"wrap"}}>
+            <h1 className="page-title">{batch.name}</h1>
+            <button className="btn-edit-batch" onClick={openBatchEdit}>✏️ 編輯批次</button>
+          </div>
+          <p className="page-sub">
+            {batch.date}　
+            商品匯率 <strong>{jpyRate}</strong>　
+            運費匯率 <strong>{shippingRate}</strong>　
+            代購匯率 <strong>{proxyRate}</strong>　
+            國際運費 ¥{Number(batch.total_intl_shipping_jpy || 0).toLocaleString()}
+            {batchShopName !== "—" && <>　購買網站 <strong>{batchShopName}</strong></>}
+          </p>
         </div>
         <div className="header-actions">
           <button className="btn-export" onClick={exportBatchCSV}>⬇ 匯出 CSV</button>
           <button className="btn-secondary" onClick={() => setShowShippingCalc(true)}>⚖️ 運費分攤</button>
-          <button className="btn-primary" onClick={() => { setEditingOrder(null); setForm(emptyForm); setShowOrderForm(true); }}>＋ 新增訂單</button>
+          <button className="btn-primary" onClick={() => { setEditingOrder(null); setForm({...emptyForm, items:[{name:"",jpy_price:"",quantity:1,weight_g:"",shop_id:defaultShopId}]}); setShowOrderForm(true); }}>＋ 新增訂單</button>
         </div>
       </div>
 
@@ -273,7 +344,7 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
           <table className="orders-table">
             <thead>
               <tr>
-                <th>客人</th><th>商品</th><th>數量</th><th>日幣單價</th>
+                <th>客人</th><th>商品</th><th>購買網站</th><th>數量</th><th>日幣單價</th>
                 <th>成本</th><th>手續費</th><th>回饋</th><th>實際成本</th>
                 <th>單件定價</th><th>定價合計</th><th>利潤</th>
                 <th>重量</th><th>集運商</th><th>運費尾款</th><th>付款方式</th>
@@ -289,7 +360,7 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
                 const paid = orderPaid(order.id);
                 const remaining = due - paid;
                 const isFullyPaid = paid >= due && due > 0;
-                const fwName = forwarders.find(f => f.id === order.forwarder_id)?.name || "—";
+                const fwName = getFwName(order.forwarder_id);
                 return (
                   <tr key={order.id} className={isFullyPaid ? "row-done" : ""}>
                     <td>
@@ -309,30 +380,29 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
                         ))}
                       </div>
                     </td>
-                    <td className="center">{activeItems.reduce((s, i) => s + (Number(i.quantity) || 1), 0)}</td>
-                    <td className="number">
-                      {activeItems.map((i, idx) => <div key={idx} className="multi-val">¥{Number(i.jpy_price).toLocaleString()}</div>)}
+                    <td className="center">
+                      <div className="item-list-detail">
+                        {(order.order_items || []).filter(i => !i.not_obtained).map((item, idx) => (
+                          <div key={idx} className="multi-val">{getShopName(item.shop_id)}</div>
+                        ))}
+                      </div>
                     </td>
+                    <td className="center">{activeItems.reduce((s, i) => s + (Number(i.quantity) || 1), 0)}</td>
+                    <td className="number">{activeItems.map((i, idx) => <div key={idx} className="multi-val">¥{Number(i.jpy_price).toLocaleString()}</div>)}</td>
                     <td className="number">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).costTwd, 0)).toLocaleString()}</td>
                     <td className="number neg">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).ccFee, 0)).toLocaleString()}</td>
                     <td className="number green">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).ccRebate, 0)).toLocaleString()}</td>
                     <td className="number">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).realCost, 0)).toLocaleString()}</td>
-                    <td className="number">
-                      {activeItems.map((i, idx) => <div key={idx} className="multi-val">NT${calcItem(i, jpyRate, proxyRate).unitPrice.toLocaleString()}</div>)}
-                    </td>
+                    <td className="number">{activeItems.map((i, idx) => <div key={idx} className="multi-val">NT${calcItem(i, jpyRate, proxyRate).unitPrice.toLocaleString()}</div>)}</td>
                     <td className="number twd">NT${Math.round(totalOrderPrice).toLocaleString()}</td>
                     <td className="number net">NT${Math.round(totalProfit).toLocaleString()}</td>
                     <td className="center">{activeItems.reduce((s, i) => s + Number(i.weight_g || 0), 0)}g</td>
                     <td className="center"><span className="forwarder-tag">{fwName}</span></td>
                     <td className="number">{order.shipping_twd > 0 ? `NT$${Math.round(order.shipping_twd).toLocaleString()}` : "—"}</td>
-                    <td className="center">
-                      <span className={`method-tag ${order.payment_method === "取付" ? "method-cod" : ""}`}>{order.payment_method}</span>
-                    </td>
+                    <td className="center"><span className={`method-tag ${order.payment_method === "取付" ? "method-cod" : ""}`}>{order.payment_method}</span></td>
                     <td className="number">NT${due.toLocaleString()}</td>
                     <td className="number net">NT${Math.round(paid).toLocaleString()}</td>
-                    <td className={`number ${remaining > 0 ? "neg" : "net"}`}>
-                      {remaining > 0 ? `NT$${Math.round(remaining).toLocaleString()}` : "✓"}
-                    </td>
+                    <td className={`number ${remaining > 0 ? "neg" : "net"}`}>{remaining > 0 ? `NT$${Math.round(remaining).toLocaleString()}` : "✓"}</td>
                     <td className="center">
                       <button className="btn-record-payment-sm" onClick={() => openPaymentModal(order)}>💳</button>
                       <button className="btn-edit-sm" onClick={() => openEdit(order)}>編輯</button>
@@ -346,14 +416,68 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
         </div>
       )}
 
-      {/* Shipping Modal */}
+      {/* ── Batch Edit Modal ── */}
+      {showBatchEdit && (
+        <div className="modal-overlay" onClick={() => setShowBatchEdit(false)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>✏️ 編輯批次</h2>
+              <button className="modal-close" onClick={() => setShowBatchEdit(false)}>✕</button>
+            </div>
+            <div className="form-grid">
+              <label className="form-label">批次名稱
+                <input className="form-input" value={batchForm.name} onChange={e => setBatchForm(f => ({...f, name: e.target.value}))} />
+              </label>
+              <label className="form-label">採購日期
+                <input className="form-input" type="date" value={batchForm.date} onChange={e => setBatchForm(f => ({...f, date: e.target.value}))} />
+              </label>
+              <label className="form-label">商品匯率（計算成本用）
+                <div className="rate-input-row">
+                  <input className="form-input" type="number" step="0.0001" value={batchForm.jpy_rate} onChange={e => setBatchForm(f => ({...f, jpy_rate: e.target.value}))} />
+                  <button className="btn-fetch-rate" onClick={() => fetchRate("jpy_rate")} disabled={fetchingRate === "jpy_rate"}>{fetchingRate === "jpy_rate" ? "⏳" : "🔄 自動抓取"}</button>
+                </div>
+              </label>
+              <label className="form-label">運費匯率（計算運費台幣用）
+                <div className="rate-input-row">
+                  <input className="form-input" type="number" step="0.0001" value={batchForm.shipping_rate} onChange={e => setBatchForm(f => ({...f, shipping_rate: e.target.value}))} />
+                  <button className="btn-fetch-rate" onClick={() => fetchRate("shipping_rate")} disabled={fetchingRate === "shipping_rate"}>{fetchingRate === "shipping_rate" ? "⏳" : "🔄 自動抓取"}</button>
+                </div>
+              </label>
+              <label className="form-label">國際運費（日幣 ¥）
+                <input className="form-input" type="number" value={batchForm.total_intl_shipping_jpy} onChange={e => setBatchForm(f => ({...f, total_intl_shipping_jpy: e.target.value}))} />
+              </label>
+              <label className="form-label">吸收運費（台幣 NT$）
+                <input className="form-input" type="number" value={batchForm.absorbed_shipping_twd} onChange={e => setBatchForm(f => ({...f, absorbed_shipping_twd: e.target.value}))} />
+              </label>
+              <label className="form-label" style={{gridColumn:"1/-1"}}>購買網站
+                <div className="forwarder-select-row">
+                  <select className="form-input" value={batchForm.shop_id} onChange={e => setBatchForm(f => ({...f, shop_id: e.target.value}))}>
+                    <option value="">未指定</option>
+                    {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <button type="button" className="btn-go-forwarder" onClick={() => { setShowBatchEdit(false); onGoShops(); }}>＋ 管理網站</button>
+                </div>
+              </label>
+              <label className="form-label" style={{gridColumn:"1/-1"}}>備註
+                <input className="form-input" value={batchForm.note} onChange={e => setBatchForm(f => ({...f, note: e.target.value}))} />
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowBatchEdit(false)}>取消</button>
+              <button className="btn-primary" onClick={saveBatch} disabled={savingBatch}>{savingBatch ? "儲存中..." : "儲存批次"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Shipping Calc Modal ── */}
       {showShippingCalc && (
         <div className="modal-overlay" onClick={() => setShowShippingCalc(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header"><h2>⚖️ 運費分攤計算</h2><button className="modal-close" onClick={() => setShowShippingCalc(false)}>✕</button></div>
             <div className="shipping-calc">
               <div className="calc-summary">
-                <div>國際運費：<strong>¥{Number(batch.total_intl_shipping_jpy).toLocaleString()} × {jpyRate} = NT${Math.round(batch.total_intl_shipping_jpy * jpyRate).toLocaleString()}</strong></div>
+                <div>國際運費：<strong>¥{Number(batch.total_intl_shipping_jpy||0).toLocaleString()} × {shippingRate}（運費匯率）= NT${Math.round((batch.total_intl_shipping_jpy||0) * shippingRate).toLocaleString()}</strong></div>
                 <div>總重量（排除未搶到）：<strong>{totalWeightG}g</strong></div>
               </div>
               <table className="calc-table">
@@ -375,7 +499,7 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
         </div>
       )}
 
-      {/* Payment Modal */}
+      {/* ── Payment Modal ── */}
       {showPaymentModal && paymentOrder && (
         <div className="modal-overlay" onClick={() => setShowPaymentModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -383,7 +507,6 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
               <h2>💳 收款記錄　<span style={{color:"var(--accent)"}}>{paymentOrder.customer}</span></h2>
               <button className="modal-close" onClick={() => setShowPaymentModal(false)}>✕</button>
             </div>
-            {/* Due summary */}
             <div className="payment-due-summary">
               {(() => {
                 const due = orderTotalDue(paymentOrder);
@@ -396,7 +519,6 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
                 </>;
               })()}
             </div>
-            {/* Existing records */}
             {paymentRecords.length > 0 && (
               <div className="payment-records-list">
                 {paymentRecords.map(p => (
@@ -409,7 +531,6 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
                 ))}
               </div>
             )}
-            {/* Add new record */}
             <div className="payment-add-row">
               <input className="form-input" type="number" placeholder="金額" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} style={{width:"120px"}} />
               <input className="form-input" placeholder="備註（選填）" value={paymentNote} onChange={e => setPaymentNote(e.target.value)} style={{flex:1}} />
@@ -422,7 +543,7 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
         </div>
       )}
 
-      {/* Order Form Modal */}
+      {/* ── Order Form Modal ── */}
       {showOrderForm && (
         <div className="modal-overlay" onClick={() => setShowOrderForm(false)}>
           <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
@@ -439,13 +560,13 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
                   {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
                 </select>
               </label>
-              <label className="form-label" style={{gridColumn:"1/-1"}}>集運商
+              <label className="form-label">集運商
                 <div className="forwarder-select-row">
                   <select className="form-input" value={form.forwarder_id} onChange={e => setFormField("forwarder_id", e.target.value)}>
                     <option value="">未指定</option>
                     {forwarders.map(fw => <option key={fw.id} value={fw.id}>{fw.name}</option>)}
                   </select>
-                  <button type="button" className="btn-go-forwarder" onClick={onGoForwarders}>＋ 管理集運商</button>
+                  <button type="button" className="btn-go-forwarder" onClick={onGoForwarders}>管理</button>
                 </div>
               </label>
               <label className="form-label" style={{gridColumn:"1/-1"}}>備註
@@ -469,6 +590,10 @@ export default function BatchDetail({ batch, orders, forwarders, onRefresh, onBa
                     <input className="form-input item-weight" type="number" placeholder="重量" value={item.weight_g} onChange={e => setItem(idx, "weight_g", e.target.value)} />
                     <span className="item-suffix">g</span>
                   </div>
+                  <select className="form-input" style={{minWidth:"100px", maxWidth:"140px"}} value={item.shop_id || ""} onChange={e => setItem(idx, "shop_id", e.target.value)}>
+                    <option value="">未指定</option>
+                    {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
                   <label className="not-obtained-check">
                     <input type="checkbox" checked={item.not_obtained || false} onChange={e => setItem(idx, "not_obtained", e.target.checked)} />
                     未搶到

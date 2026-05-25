@@ -6,6 +6,7 @@ import CustomerView from "./components/CustomerView";
 import ProfitDashboard from "./components/ProfitDashboard";
 import Settings from "./components/Settings";
 import Forwarders from "./components/Forwarders";
+import Shops from "./components/Shops";
 import "./App.css";
 
 const SETTINGS_KEY = "daiko_settings";
@@ -17,6 +18,7 @@ export default function App() {
   const [batches, setBatches] = useState([]);
   const [orders, setOrders] = useState([]);
   const [forwarders, setForwarders] = useState([]);
+  const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(() => {
     try {
@@ -34,21 +36,29 @@ export default function App() {
 
   async function fetchAll() {
     setLoading(true);
-    const [{ data: b }, { data: o }, { data: f }] = await Promise.all([
+    const [{ data: b }, { data: o }, { data: f }, { data: sh }] = await Promise.all([
       supabase.from("batches").select("*").order("created_at", { ascending: false }),
       supabase.from("orders").select("*, order_items(*)").order("created_at", { ascending: false }),
       supabase.from("forwarders").select("*").order("name"),
+      supabase.from("shops").select("*").order("name"),
     ]);
     setBatches(b || []);
     setOrders(o || []);
     setForwarders(f || []);
+    setShops(sh || []);
     setLoading(false);
   }
 
+  // When navigating to batch-detail, refresh the selected batch from latest data
   const nav = (p, batch = null) => {
     setPage(p);
     if (batch) setSelectedBatch(batch);
   };
+
+  // Keep selectedBatch in sync after refresh
+  const selectedBatchLatest = selectedBatch
+    ? (batches.find(b => b.id === selectedBatch.id) || selectedBatch)
+    : null;
 
   return (
     <div className="app">
@@ -72,6 +82,9 @@ export default function App() {
             <button className={`nav-btn ${page === "forwarders" ? "active" : ""}`} onClick={() => nav("forwarders")}>
               <span className="nav-icon">🚚</span>集運商
             </button>
+            <button className={`nav-btn ${page === "shops" ? "active" : ""}`} onClick={() => nav("shops")}>
+              <span className="nav-icon">🛍️</span>購物網站
+            </button>
             <button className={`nav-btn ${page === "settings" ? "active" : ""}`} onClick={() => nav("settings")}>
               <span className="nav-icon">⚙️</span>系統設定
             </button>
@@ -85,20 +98,23 @@ export default function App() {
         ) : (
           <>
             {page === "batches" && <BatchList batches={batches} orders={orders} onRefresh={fetchAll} onSelectBatch={(b) => nav("batch-detail", b)} settings={settings} />}
-            {page === "batch-detail" && selectedBatch && (
+            {page === "batch-detail" && selectedBatchLatest && (
               <BatchDetail
-                batch={selectedBatch}
-                orders={orders.filter(o => o.batch_id === selectedBatch.id)}
+                batch={selectedBatchLatest}
+                orders={orders.filter(o => o.batch_id === selectedBatchLatest.id)}
                 forwarders={forwarders}
+                shops={shops}
                 onRefresh={fetchAll}
                 onBack={() => nav("batches")}
                 settings={settings}
                 onGoForwarders={() => nav("forwarders")}
+                onGoShops={() => nav("shops")}
               />
             )}
             {page === "customers" && <CustomerView orders={orders} batches={batches} onRefresh={fetchAll} settings={settings} />}
             {page === "profit" && <ProfitDashboard batches={batches} orders={orders} settings={settings} />}
             {page === "forwarders" && <Forwarders forwarders={forwarders} onRefresh={fetchAll} />}
+            {page === "shops" && <Shops shops={shops} onRefresh={fetchAll} />}
             {page === "settings" && <Settings settings={settings} onSave={saveSettings} />}
           </>
         )}
