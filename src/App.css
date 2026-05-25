@@ -784,3 +784,107 @@ select.form-input { cursor: pointer; }
   .item-header-row { display: none; }
   .item-row-full { grid-template-columns: 1fr 1fr; gap: 6px; }
 }
+
+/* ── Month filter ── */
+.month-filter-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+/* ── Dividend ── */
+.dividend-section { margin-bottom: 32px; }
+.dividend-list { display: flex; flex-direction: column; gap: 8px; }
+.dividend-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.dividend-date { font-size: 13px; color: var(--text3); min-width: 90px; }
+.dividend-note { flex: 1; font-size: 13px; color: var(--text2); }
+.dividend-amount { font-family: var(--font-mono); font-weight: 700; color: var(--accent); font-size: 15px; }
+.dividend-card { border-color: var(--accent) !important; background: rgba(232,160,69,0.05) !important; }
+.dividend-val { color: var(--accent) !important; font-size: 18px; }
+.undistributed-card { border-color: var(--green) !important; background: rgba(62,207,142,0.05) !important; }
+
+/* ── Customer actions ── */
+.customer-actions { padding: 12px 0 4px; }
+.btn-shipping-list {
+  background: rgba(91,141,238,0.12);
+  border: 1px solid rgba(91,141,238,0.35);
+  color: var(--accent2);
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-shipping-list:hover { background: rgba(91,141,238,0.22); }
+.item-chip-grey { opacity: 0.4; text-decoration: line-through; }
+
+/* ── Shipping modal ── */
+.shipping-settings {
+  display: flex;
+  gap: 20px;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.shipping-fee-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text3);
+  font-weight: 500;
+}
+.shipping-fee-input { width: 100px; }
+.shipping-items-section { margin-bottom: 20px; }
+.shipping-section-title { font-size: 13px; font-weight: 700; color: var(--text2); margin-bottom: 10px; }
+.shipping-order-group { margin-bottom: 12px; }
+.shipping-batch-label { font-size: 11px; color: var(--accent2); font-weight: 600; margin-bottom: 6px; }
+.shipping-item-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-size: 13px;
+}
+.shipping-item-check:hover { background: var(--surface2); }
+.shipping-item-check input { cursor: pointer; }
+.shipping-item-name { flex: 1; color: var(--text); }
+.shipping-item-qty { color: var(--text3); font-size: 12px; }
+.shipping-item-price { font-family: var(--font-mono); font-weight: 600; }
+
+/* ── Shipping preview card ── */
+.shipping-preview { margin-bottom: 8px; }
+.shipping-preview-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.sp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.sp-header { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.sp-label { color: var(--text3); }
+.sp-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.sp-total { font-weight: 700; font-size: 16px; color: var(--green); }
+.sp-empty { color: var(--text3); justify-content: center; }

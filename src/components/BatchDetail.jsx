@@ -242,10 +242,6 @@ export default function BatchDetail({ batch, orders, onRefresh, onBack, settings
           <span className="profit-label">淨利</span>
           <span className="profit-value net">NT${Math.round(profit.net).toLocaleString()}</span>
         </div>
-        <div className="profit-item highlight">
-          <span className="profit-label">每人分</span>
-          <span className="profit-value net">NT${Math.round(profit.each).toLocaleString()}</span>
-        </div>
       </div>
 
       {/* Orders */}
@@ -418,57 +414,27 @@ export default function BatchDetail({ batch, orders, onRefresh, onBack, settings
                 <h3>商品明細</h3>
                 <button className="btn-add-item" onClick={addItem}>＋ 新增商品</button>
               </div>
-
-              {/* Item header row */}
-              <div className="item-header-row">
-                <span className="ih-name">商品名稱</span>
-                <span className="ih-qty">數量</span>
-                <span className="ih-price">日幣單價</span>
-                <span className="ih-weight">重量(g)</span>
-                <span className="ih-calc">單件定價</span>
-                <span className="ih-total">總定價</span>
-                <span className="ih-profit">利潤</span>
-              </div>
-
-              {form.items.map((item, idx) => {
-                const c = item.jpy_price ? calcItem(item, jpyRate, proxyRate) : null;
-                return (
-                  <div key={idx} className={`item-row-full ${item.not_obtained ? "item-not-obtained" : ""}`}>
-                    <input className="form-input ih-name" placeholder="商品名稱" value={item.name} onChange={(e) => setItem(idx, "name", e.target.value)} />
-                    <input className="form-input ih-qty" type="number" min="1" placeholder="數量" value={item.quantity} onChange={(e) => setItem(idx, "quantity", e.target.value)} />
-                    <div className="item-price-wrap ih-price">
-                      <span className="item-prefix">¥</span>
-                      <input className="form-input" type="number" placeholder="日幣單價" value={item.jpy_price} onChange={(e) => setItem(idx, "jpy_price", e.target.value)} />
-                    </div>
-                    <div className="item-weight-wrap ih-weight">
-                      <input className="form-input" type="number" placeholder="重量" value={item.weight_g} onChange={(e) => setItem(idx, "weight_g", e.target.value)} />
-                      <span className="item-suffix">g</span>
-                    </div>
-                    <span className="ih-calc calc-val">{c ? `NT$${c.unitPrice.toLocaleString()}` : "—"}</span>
-                    <span className="ih-total calc-val twd">{c ? `NT$${c.totalPrice.toLocaleString()}` : "—"}</span>
-                    <span className="ih-profit calc-val net">{c && !item.not_obtained ? `NT$${Math.round(c.profit).toLocaleString()}` : "—"}</span>
-                    <label className="not-obtained-check">
-                      <input type="checkbox" checked={item.not_obtained || false} onChange={(e) => setItem(idx, "not_obtained", e.target.checked)} />
-                      未搶到
-                    </label>
-                    {form.items.length > 1 && (
-                      <button className="btn-remove-item" onClick={() => removeItem(idx)}>✕</button>
-                    )}
+              {form.items.map((item, idx) => (
+                <div key={idx} className={`item-row ${item.not_obtained ? "item-not-obtained" : ""}`}>
+                  <input className="form-input item-name" placeholder="商品名稱" value={item.name} onChange={(e) => setItem(idx, "name", e.target.value)} />
+                  <input className="form-input" style={{width:"70px"}} type="number" min="1" placeholder="數量" value={item.quantity} onChange={(e) => setItem(idx, "quantity", e.target.value)} />
+                  <div className="item-price-wrap">
+                    <span className="item-prefix">¥</span>
+                    <input className="form-input item-price" type="number" placeholder="日幣單價" value={item.jpy_price} onChange={(e) => setItem(idx, "jpy_price", e.target.value)} />
                   </div>
-                );
-              })}
-
-              {form.items.length > 0 && (() => {
-                const activeItems = form.items.filter(i => !i.not_obtained && i.jpy_price);
-                const totalOrderPrice = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).totalPrice, 0);
-                const totalProfit = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).profit, 0);
-                return (
-                  <div className="items-total">
-                    定價總計：<span className="twd-text">NT${totalOrderPrice.toLocaleString()}</span>
-                    　利潤：<span className="net-text">NT${Math.round(totalProfit).toLocaleString()}</span>
+                  <div className="item-weight-wrap">
+                    <input className="form-input item-weight" type="number" placeholder="重量" value={item.weight_g} onChange={(e) => setItem(idx, "weight_g", e.target.value)} />
+                    <span className="item-suffix">g</span>
                   </div>
-                );
-              })()}
+                  <label className="not-obtained-check">
+                    <input type="checkbox" checked={item.not_obtained || false} onChange={(e) => setItem(idx, "not_obtained", e.target.checked)} />
+                    未搶到
+                  </label>
+                  {form.items.length > 1 && (
+                    <button className="btn-remove-item" onClick={() => removeItem(idx)}>✕</button>
+                  )}
+                </div>
+              ))}
             </div>
 
             <div className="modal-footer">
