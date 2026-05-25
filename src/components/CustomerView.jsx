@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 
 // calc helper (same logic as BatchDetail)
@@ -17,6 +17,18 @@ function calcItem(item, jpyRate, proxyRate) {
 }
 
 export default function CustomerView({ orders, batches, onRefresh, settings }) {
+  // Fetch all payment records for display
+  const [allPaymentMap, setAllPaymentMap] = useState({});
+  useEffect(() => {
+    if (!orders.length) return;
+    const ids = orders.map(o => o.id);
+    supabase.from("payment_records").select("order_id, amount").in("order_id", ids)
+      .then(({ data }) => {
+        const map = {};
+        (data || []).forEach(p => { map[p.order_id] = (map[p.order_id] || 0) + Number(p.amount); });
+        setAllPaymentMap(map);
+      });
+  }, [orders]);
   const proxyRate = settings?.proxy_rate || 0.25;
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -90,7 +102,7 @@ export default function CustomerView({ orders, batches, onRefresh, settings }) {
 
   // Calculate shipping list totals
   const shippingCalc = useMemo(() => {
-    if (!shippingCustomerOrders.length) return { items: [], subtotal: 0, total: 0 };
+    if (!shippingCustomerOrders.length) return { items: [], subtotal: 0, shippingTotal: 0, alreadyPaid: 0, remaining: 0 };
     const items = [];
     shippingCustomerOrders.forEach(o => {
       const rate = getBatchRate(o.batch_id);
@@ -100,14 +112,18 @@ export default function CustomerView({ orders, batches, onRefresh, settings }) {
       });
     });
     const subtotal = items.reduce((s, i) => s + i.totalPrice, 0);
-    // Include shipping for orders that have selected items
     const orderIds = [...new Set(items.map(i => i.orderId))];
     const shippingTotal = shippingCustomerOrders
       .filter(o => orderIds.includes(o.id) && o.shipping_twd > 0)
       .reduce((s, o) => s + Number(o.shipping_twd), 0);
-    const total = subtotal + shippingTotal + Number(packFee || 0);
-    return { items, subtotal, shippingTotal, total };
-  }, [shippingCustomerOrders, selectedItems, packFee, batches, proxyRate]);
+    // Already paid across all selected orders (fetched from allPayments prop)
+    const alreadyPaid = shippingCustomerOrders
+      .filter(o => orderIds.includes(o.id))
+      .reduce((s, o) => s + (allPaymentMap[o.id] || 0), 0);
+    const gross = subtotal + shippingTotal + Number(packFee || 0);
+    const remaining = Math.max(0, gross - alreadyPaid);
+    return { items, subtotal, shippingTotal, alreadyPaid, gross, remaining };
+  }, [shippingCustomerOrders, selectedItems, packFee, batches, proxyRate, allPaymentMap]);
 
   // Get note and payment method from first order
   const shippingNote = shippingCustomerOrders[0]?.note || "";
@@ -277,12 +293,15 @@ export default function CustomerView({ orders, batches, onRefresh, settings }) {
                 {shippingCalc.items.length === 0 && <div className="sp-row sp-empty">請勾選商品</div>}
                 <div className="sp-divider" />
                 <div className="sp-row"><span className="sp-label">商品小計</span><span>NT${shippingCalc.subtotal.toLocaleString()}</span></div>
-                {shippingTwd > 0 && <div className="sp-row"><span className="sp-label">運費尾款</span><span>NT${Math.round(shippingTwd).toLocaleString()}</span></div>}
+                {shippingCalc.shippingTotal > 0 && <div className="sp-row"><span className="sp-label">運費尾款</span><span>NT${Math.round(shippingCalc.shippingTotal).toLocaleString()}</span></div>}
                 <div className="sp-row"><span className="sp-label">包手費</span><span>NT${Number(packFee).toLocaleString()}</span></div>
                 <div className="sp-divider" />
+                <div className="sp-row"><span className="sp-label">應收總計</span><span className="twd-text">NT${Math.round(shippingCalc.gross || 0).toLocaleString()}</span></div>
+                {shippingCalc.alreadyPaid > 0 && <div className="sp-row"><span className="sp-label">已付金額</span><span className="net-text">-NT${Math.round(shippingCalc.alreadyPaid).toLocaleString()}</span></div>}
+                <div className="sp-divider" />
                 <div className="sp-row sp-total">
-                  <span>應收總計</span>
-                  <span>NT${Math.round(shippingCalc.subtotal + shippingTwd + Number(packFee || 0)).toLocaleString()}</span>
+                  <span>{shippingCalc.remaining === 0 ? "✓ 已結清" : "此次應收"}</span>
+                  <span className={shippingCalc.remaining === 0 ? "" : ""}> NT${Math.round(shippingCalc.remaining || shippingCalc.gross || 0).toLocaleString()}</span>
                 </div>
               </div>
             </div>
