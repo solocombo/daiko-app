@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap');
 
-/* ── CSS Variables ── */
+/* ── CSS Variables - Dark (default) ── */
 :root {
   --bg: #0d0f14;
   --surface: #161920;
@@ -18,6 +18,30 @@
   --radius: 10px;
   --radius-lg: 16px;
 }
+
+/* ── Light Theme (米色系) ── */
+.theme-light {
+  --bg: #f5f0e8;
+  --surface: #fdf8f0;
+  --surface2: #ede8de;
+  --border: #d4cdbf;
+  --accent: #c47d1a;
+  --accent2: #3a6bc9;
+  --green: #2a8a5e;
+  --red: #c0392b;
+  --text: #2c2416;
+  --text2: #6b5f4e;
+  --text3: #9a8f7e;
+}
+.theme-light body { background: var(--bg); }
+.theme-light .header { background: var(--surface); border-bottom-color: var(--border); }
+.theme-light .batch-card:hover { border-color: var(--accent); }
+.theme-light .orders-table { background: var(--surface); }
+.theme-light .orders-table th { background: var(--surface2); }
+.theme-light .modal { background: var(--surface); }
+.theme-light .form-input { background: var(--surface2); color: var(--text); border-color: var(--border); }
+.theme-light .form-input:focus { border-color: var(--accent); }
+.theme-light select.form-input option { background: var(--surface); color: var(--text); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1191,3 +1215,113 @@ select.form-input { cursor: pointer; }
 .summary-collect-label { font-size: 13px; color: var(--text3); white-space: nowrap; }
 .summary-collect-input { flex: 1; max-width: 140px; }
 .summary-collect-btn { white-space: nowrap; }
+
+/* ── Theme toggle ── */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.theme-toggle-track {
+  width: 40px; height: 22px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  position: relative;
+  transition: background 0.2s;
+}
+.theme-toggle-track.on { background: var(--accent); border-color: var(--accent); }
+.theme-toggle-thumb {
+  width: 16px; height: 16px;
+  background: var(--text3);
+  border-radius: 50%;
+  position: absolute;
+  top: 2px; left: 2px;
+  transition: left 0.2s, background 0.2s;
+}
+.theme-toggle-track.on .theme-toggle-thumb { left: 20px; background: white; }
+.theme-toggle-label { font-size: 12px; color: var(--text3); white-space: nowrap; }
+
+/* ── Credits page ── */
+.credits-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.credit-summary-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 20px;
+  min-width: 160px;
+}
+.credit-summary-label { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+.credit-summary-value { font-family: var(--font-mono); font-size: 20px; font-weight: 700; }
+
+.credits-table-wrap { overflow-x: auto; }
+.credits-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.credits-table th {
+  background: var(--surface2);
+  color: var(--text3);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 12px 14px;
+  text-align: left;
+}
+.credits-table td { padding: 12px 14px; border-top: 1px solid var(--border); font-size: 13px; }
+.credits-table .number { text-align: right; font-family: var(--font-mono); }
+.credits-table .center { text-align: center; }
+.credit-positive { color: var(--green); font-weight: 700; }
+.credit-zero { color: var(--text3); }
+
+/* ── Sortable table headers ── */
+.orders-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.orders-table th.sortable:hover { color: var(--accent); }
+.sort-icon { margin-left: 4px; font-size: 10px; opacity: 0.6; }
+.sort-icon.active { opacity: 1; color: var(--accent); }
+
+/* ── Column reorder drag ── */
+.orders-table th.dragging { opacity: 0.4; }
+.orders-table th.drag-over { border-left: 2px solid var(--accent); }
+
+/* ── Column hint ── */
+.col-hint {
+  font-size: 11px;
+  color: var(--text3);
+  margin-bottom: 6px;
+  padding-left: 2px;
+}
+
+/* ── Light theme extra fixes ── */
+.theme-light .batch-card { background: var(--surface); border-color: var(--border); }
+.theme-light .nav-btn { color: var(--text2); }
+.theme-light .nav-btn:hover { background: var(--surface2); color: var(--text); }
+.theme-light .nav-btn.active { background: var(--surface2); color: var(--accent); }
+.theme-light .profit-banner { background: var(--border); }
+.theme-light .profit-item { background: var(--surface); }
+.theme-light .profit-item.highlight { background: var(--surface2); }
+.theme-light .loading-spinner { border-color: var(--border); border-top-color: var(--accent); }
+.theme-light .empty-state { color: var(--text3); }
+.theme-light .customer-card { background: var(--surface); border-color: var(--border); }
+.theme-light .customer-order-row { background: var(--surface2); }
+.theme-light .shipping-preview-card { background: var(--surface2); border-color: var(--border); }
+.theme-light .forwarder-card { background: var(--surface); border-color: var(--border); }
+.theme-light .summary-card { background: var(--surface2); border-color: var(--border); }
+.theme-light .summary-card-header { background: var(--surface); border-color: var(--border); }
+.theme-light .order-card { background: var(--surface); }

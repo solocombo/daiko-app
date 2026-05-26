@@ -98,7 +98,45 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   const [allPayments, setAllPayments] = useState({});
   const [saving, setSaving] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
-  const [summaryPayments, setSummaryPayments] = useState({}); // orderId -> input amount
+  const [summaryPayments, setSummaryPayments] = useState({});
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+  const [dragCol, setDragCol] = useState(null);
+  const [dragOverCol, setDragOverCol] = useState(null);
+
+  const COLS_KEY = "daiko_col_order";
+  const DEFAULT_COLS = ["ops","customer","items","shop","qty","jpyPrice","cost","fee","rebate","realCost","unitPrice","totalPrice","profit","weight","forwarder","shipping","payMethod","due","paid","remaining"];
+  const [colOrder, setColOrder] = useState(() => {
+    try { const s = localStorage.getItem(COLS_KEY); return s ? JSON.parse(s) : DEFAULT_COLS; }
+    catch { return DEFAULT_COLS; }
+  });
+  function saveColOrder(order) { setColOrder(order); localStorage.setItem(COLS_KEY, JSON.stringify(order)); }
+
+  const COL_LABELS = {
+    ops: "操作", customer: "客人", items: "商品", shop: "購買網站",
+    qty: "數量", jpyPrice: "日幣單價", cost: "成本", fee: "手續費",
+    rebate: "回饋", realCost: "實際成本", unitPrice: "單件定價",
+    totalPrice: "定價合計", profit: "利潤", weight: "重量",
+    forwarder: "集運商", shipping: "運費尾款", payMethod: "付款方式",
+    due: "應收", paid: "已付", remaining: "尚欠",
+  };
+
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  }
+  function handleDragStart(col) { setDragCol(col); }
+  function handleDragOver(col) { setDragOverCol(col); }
+  function handleDrop(col) {
+    if (!dragCol || dragCol === col) { setDragCol(null); setDragOverCol(null); return; }
+    const newOrder = [...colOrder];
+    const fromIdx = newOrder.indexOf(dragCol);
+    const toIdx = newOrder.indexOf(col);
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, dragCol);
+    saveColOrder(newOrder);
+    setDragCol(null); setDragOverCol(null);
+  }
 
   const defaultShopId = batch.shop_id || "";
   const emptyForm = { customer: "", payment_method: "虛擬帳戶轉帳", forwarder_id: "", items: [{ name: "", jpy_price: "", quantity: 1, weight_g: "", shop_id: defaultShopId }], note: "" };
@@ -241,8 +279,19 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
     const { data } = await supabase.from("payment_records").select("*").eq("order_id", paymentOrder.id).order("created_at");
     setPaymentRecords(data || []);
     const totalPaid = (data || []).reduce((s, p) => s + Number(p.amount), 0);
-    if (totalPaid >= orderTotalDue(paymentOrder)) {
+    const due = orderTotalDue(paymentOrder);
+    if (totalPaid >= due) {
       await supabase.from("orders").update({ product_paid: true, shipping_paid: true }).eq("id", paymentOrder.id);
+    }
+    // Handle overpayment -> store as credit
+    if (totalPaid > due) {
+      const excess = totalPaid - due;
+      const { data: existing } = await supabase.from("customer_credits").select("*").eq("customer", paymentOrder.customer).single();
+      if (existing) {
+        await supabase.from("customer_credits").update({ balance: existing.balance + excess, updated_at: new Date().toISOString() }).eq("id", existing.id);
+      } else {
+        await supabase.from("customer_credits").insert([{ customer: paymentOrder.customer, balance: excess }]);
+      }
     }
     setPaymentAmount(""); setPaymentNote("");
     setSavingPayment(false);
@@ -342,82 +391,107 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
       {/* Orders Table */}
       {orders.length === 0 ? (
         <div className="empty-state"><div className="empty-icon">🛒</div><p>這個批次還沒有訂單</p></div>
-      ) : (
-        <div className="orders-table-wrap">
-          <table className="orders-table">
-            <thead>
-              <tr>
-                <th>客人</th><th>商品</th><th>購買網站</th><th>數量</th><th>日幣單價</th>
-                <th>成本</th><th>手續費</th><th>回饋</th><th>實際成本</th>
-                <th>單件定價</th><th>定價合計</th><th>利潤</th>
-                <th>重量</th><th>集運商</th><th>運費尾款</th><th>付款方式</th>
-                <th>應收</th><th>已付</th><th>尚欠</th><th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => {
-                const activeItems = (order.order_items || []).filter(i => !i.not_obtained);
-                const totalOrderPrice = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).totalPrice, 0);
-                const totalProfit = activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).profit, 0);
-                const due = orderTotalDue(order);
-                const paid = orderPaid(order.id);
-                const remaining = due - paid;
-                const isFullyPaid = paid >= due && due > 0;
-                const fwName = getFwName(order.forwarder_id);
-                return (
-                  <tr key={order.id} className={isFullyPaid ? "row-done" : ""}>
-                    <td>
-                      <div className="customer-name">{order.customer}</div>
-                      {order.note && <div className="order-note">📝 {order.note}</div>}
-                    </td>
-                    <td>
-                      <div className="item-list-detail">
-                        {(order.order_items || []).map((item, idx) => (
-                          <div key={idx} className={`item-detail-row ${item.not_obtained ? "item-not-obtained" : ""}`}>
-                            <span className="item-detail-name">{item.name}</span>
-                            {item.not_obtained && <span className="not-obtained-badge">未搶到</span>}
-                            <button className={`btn-not-obtained ${item.not_obtained ? "active" : ""}`} onClick={() => toggleNotObtained(item.id, item.not_obtained)}>
-                              {item.not_obtained ? "↩" : "✕"}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="center">
-                      <div className="item-list-detail">
-                        {(order.order_items || []).filter(i => !i.not_obtained).map((item, idx) => (
-                          <div key={idx} className="multi-val">{getShopName(item.shop_id)}</div>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="center">{activeItems.reduce((s, i) => s + (Number(i.quantity) || 1), 0)}</td>
-                    <td className="number">{activeItems.map((i, idx) => <div key={idx} className="multi-val">¥{Number(i.jpy_price).toLocaleString()}</div>)}</td>
-                    <td className="number">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).costTwd, 0)).toLocaleString()}</td>
-                    <td className="number neg">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).ccFee, 0)).toLocaleString()}</td>
-                    <td className="number green">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).ccRebate, 0)).toLocaleString()}</td>
-                    <td className="number">NT${Math.round(activeItems.reduce((s, i) => s + calcItem(i, jpyRate, proxyRate).realCost, 0)).toLocaleString()}</td>
-                    <td className="number">{activeItems.map((i, idx) => <div key={idx} className="multi-val">NT${calcItem(i, jpyRate, proxyRate).unitPrice.toLocaleString()}</div>)}</td>
-                    <td className="number twd">NT${Math.round(totalOrderPrice).toLocaleString()}</td>
-                    <td className="number net">NT${Math.round(totalProfit).toLocaleString()}</td>
-                    <td className="center">{activeItems.reduce((s, i) => s + Number(i.weight_g || 0), 0)}g</td>
-                    <td className="center"><span className="forwarder-tag">{fwName}</span></td>
-                    <td className="number">{order.shipping_twd > 0 ? `NT$${Math.round(order.shipping_twd).toLocaleString()}` : "—"}</td>
-                    <td className="center"><span className={`method-tag ${order.payment_method === "取付" ? "method-cod" : ""}`}>{order.payment_method}</span></td>
-                    <td className="number">NT${due.toLocaleString()}</td>
-                    <td className="number net">NT${Math.round(paid).toLocaleString()}</td>
-                    <td className={`number ${remaining > 0 ? "neg" : "net"}`}>{remaining > 0 ? `NT$${Math.round(remaining).toLocaleString()}` : "✓"}</td>
-                    <td className="center">
-                      <button className="btn-record-payment-sm" onClick={() => openPaymentModal(order)}>💳</button>
-                      <button className="btn-edit-sm" onClick={() => openEdit(order)}>編輯</button>
-                      <button className="btn-danger-sm" onClick={() => deleteOrder(order.id)}>刪除</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      ) : (() => {
+        // Sort orders
+        const sortedOrders = [...orders].sort((a, b) => {
+          if (!sortCol) return 0;
+          const activeA = (a.order_items || []).filter(i => !i.not_obtained);
+          const activeB = (b.order_items || []).filter(i => !i.not_obtained);
+          let va, vb;
+          switch(sortCol) {
+            case "customer": va = a.customer; vb = b.customer; break;
+            case "qty": va = activeA.reduce((s,i)=>s+(Number(i.quantity)||1),0); vb = activeB.reduce((s,i)=>s+(Number(i.quantity)||1),0); break;
+            case "totalPrice": va = activeA.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).totalPrice,0); vb = activeB.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).totalPrice,0); break;
+            case "profit": va = activeA.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).profit,0); vb = activeB.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).profit,0); break;
+            case "due": va = orderTotalDue(a); vb = orderTotalDue(b); break;
+            case "paid": va = orderPaid(a.id); vb = orderPaid(b.id); break;
+            case "remaining": va = orderTotalDue(a)-orderPaid(a.id); vb = orderTotalDue(b)-orderPaid(b.id); break;
+            case "weight": va = activeA.reduce((s,i)=>s+Number(i.weight_g||0),0); vb = activeB.reduce((s,i)=>s+Number(i.weight_g||0),0); break;
+            default: return 0;
+          }
+          if (typeof va === "string") return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+          return sortDir === "asc" ? va - vb : vb - va;
+        });
+
+        function renderCell(col, order) {
+          const activeItems = (order.order_items || []).filter(i => !i.not_obtained);
+          const totalOrderPrice = activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).totalPrice,0);
+          const totalProfit = activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).profit,0);
+          const due = orderTotalDue(order);
+          const paid = orderPaid(order.id);
+          const remaining = due - paid;
+          const fwName = getFwName(order.forwarder_id);
+          switch(col) {
+            case "ops": return <td key={col} className="center"><button className="btn-record-payment-sm" onClick={()=>openPaymentModal(order)}>💳</button><button className="btn-edit-sm" onClick={()=>openEdit(order)}>編輯</button><button className="btn-danger-sm" onClick={()=>deleteOrder(order.id)}>刪除</button></td>;
+            case "customer": return <td key={col}><div className="customer-name">{order.customer}</div>{order.note&&<div className="order-note">📝 {order.note}</div>}</td>;
+            case "items": return <td key={col}><div className="item-list-detail">{(order.order_items||[]).map((item,idx)=><div key={idx} className={`item-detail-row ${item.not_obtained?"item-not-obtained":""}`}><span className="item-detail-name">{item.name}</span>{item.not_obtained&&<span className="not-obtained-badge">未搶到</span>}<button className={`btn-not-obtained ${item.not_obtained?"active":""}`} onClick={()=>toggleNotObtained(item.id,item.not_obtained)}>{item.not_obtained?"↩":"✕"}</button></div>)}</div></td>;
+            case "shop": return <td key={col} className="center"><div className="item-list-detail">{activeItems.map((item,idx)=><div key={idx} className="multi-val">{getShopName(item.shop_id)}</div>)}</div></td>;
+            case "qty": return <td key={col} className="center">{activeItems.reduce((s,i)=>s+(Number(i.quantity)||1),0)}</td>;
+            case "jpyPrice": return <td key={col} className="number">{activeItems.map((i,idx)=><div key={idx} className="multi-val">¥{Number(i.jpy_price).toLocaleString()}</div>)}</td>;
+            case "cost": return <td key={col} className="number">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).costTwd,0)).toLocaleString()}</td>;
+            case "fee": return <td key={col} className="number neg">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).ccFee,0)).toLocaleString()}</td>;
+            case "rebate": return <td key={col} className="number green">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).ccRebate,0)).toLocaleString()}</td>;
+            case "realCost": return <td key={col} className="number">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).realCost,0)).toLocaleString()}</td>;
+            case "unitPrice": return <td key={col} className="number">{activeItems.map((i,idx)=><div key={idx} className="multi-val">NT${calcItem(i,jpyRate,proxyRate).unitPrice.toLocaleString()}</div>)}</td>;
+            case "totalPrice": return <td key={col} className="number twd">NT${Math.round(totalOrderPrice).toLocaleString()}</td>;
+            case "profit": return <td key={col} className="number net">NT${Math.round(totalProfit).toLocaleString()}</td>;
+            case "weight": return <td key={col} className="center">{activeItems.reduce((s,i)=>s+Number(i.weight_g||0),0)}g</td>;
+            case "forwarder": return <td key={col} className="center"><span className="forwarder-tag">{fwName}</span></td>;
+            case "shipping": return <td key={col} className="number">{order.shipping_twd>0?`NT$${Math.round(order.shipping_twd).toLocaleString()}`:"—"}</td>;
+            case "payMethod": return <td key={col} className="center"><span className={`method-tag ${order.payment_method==="取付"?"method-cod":""}`}>{order.payment_method}</span></td>;
+            case "due": return <td key={col} className="number">NT${due.toLocaleString()}</td>;
+            case "paid": return <td key={col} className="number net">NT${Math.round(paid).toLocaleString()}</td>;
+            case "remaining": return <td key={col} className={`number ${remaining>0?"neg":"net"}`}>{remaining>0?`NT$${Math.round(remaining).toLocaleString()}`:"✓"}</td>;
+            default: return <td key={col} />;
+          }
+        }
+
+        const sortableSet = new Set(["customer","qty","totalPrice","profit","due","paid","remaining","weight"]);
+
+        return (
+          <div className="orders-table-wrap">
+            <p className="col-hint">💡 拖曳欄位標題可調整順序，點擊可排序</p>
+            <table className="orders-table">
+              <thead>
+                <tr>
+                  {colOrder.map(col => (
+                    <th key={col}
+                      className={[
+                        sortableSet.has(col) ? "sortable" : "",
+                        dragCol === col ? "dragging" : "",
+                        dragOverCol === col ? "drag-over" : "",
+                      ].join(" ")}
+                      draggable
+                      onClick={() => sortableSet.has(col) && handleSort(col)}
+                      onDragStart={() => handleDragStart(col)}
+                      onDragOver={e => { e.preventDefault(); handleDragOver(col); }}
+                      onDrop={() => handleDrop(col)}
+                      onDragEnd={() => { setDragCol(null); setDragOverCol(null); }}
+                    >
+                      {COL_LABELS[col]}
+                      {sortableSet.has(col) && (
+                        <span className={`sort-icon ${sortCol===col?"active":""}`}>
+                          {sortCol===col ? (sortDir==="asc" ? "▲" : "▼") : "⇅"}
+                        </span>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedOrders.map(order => {
+                  const isFullyPaid = orderPaid(order.id) >= orderTotalDue(order) && orderTotalDue(order) > 0;
+                  return (
+                    <tr key={order.id} className={isFullyPaid ? "row-done" : ""}>
+                      {colOrder.map(col => renderCell(col, order))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* ── Batch Edit Modal ── */}
       {showBatchEdit && (
