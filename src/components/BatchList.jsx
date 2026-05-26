@@ -14,17 +14,18 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch, s
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  async function fetchJpyRate() {
+  async function fetchJpyRate(dateOverride) {
     setFetchingRate(true);
     try {
-      const res = await fetch("https://api.exchangerate-api.com/v4/latest/JPY");
+      const date = dateOverride || form.date || TODAY;
+      const url = date >= TODAY
+        ? "https://api.frankfurter.app/latest?from=JPY&to=TWD"
+        : `https://api.frankfurter.app/${date}?from=JPY&to=TWD`;
+      const res = await fetch(url);
       const data = await res.json();
-      const twdPerJpy = data.rates?.TWD;
-      if (twdPerJpy) {
-        set("jpy_rate", parseFloat(twdPerJpy.toFixed(4)));
-      } else {
-        alert("無法取得匯率，請手動輸入");
-      }
+      const rate = data.rates?.TWD;
+      if (rate) set("jpy_rate", parseFloat(rate.toFixed(4)));
+      else alert("無法取得匯率，請手動輸入");
     } catch {
       alert("匯率 API 連線失敗，請手動輸入");
     }
@@ -34,17 +35,7 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch, s
   function openForm() {
     setForm({ name: "", date: TODAY, jpy_rate: "", total_intl_shipping_jpy: 0, absorbed_shipping_twd: 0, note: "" });
     setShowForm(true);
-    // Auto fetch rate when opening form
-    setTimeout(async () => {
-      setFetchingRate(true);
-      try {
-        const res = await fetch("https://api.exchangerate-api.com/v4/latest/JPY");
-        const data = await res.json();
-        const twdPerJpy = data.rates?.TWD;
-        if (twdPerJpy) setForm(f => ({ ...f, jpy_rate: parseFloat(twdPerJpy.toFixed(4)) }));
-      } catch {}
-      setFetchingRate(false);
-    }, 100);
+    setTimeout(() => fetchJpyRate(TODAY), 100);
   }
 
   const activeBatches = batches.filter(b => !b.archived);

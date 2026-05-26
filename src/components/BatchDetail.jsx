@@ -58,7 +58,12 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   async function fetchRate(field) {
     setFetchingRate(field);
     try {
-      const res = await fetch("https://api.exchangerate-api.com/v4/latest/JPY");
+      const date = batchForm.date || new Date().toISOString().split("T")[0];
+      const today = new Date().toISOString().split("T")[0];
+      const url = date >= today
+        ? "https://api.frankfurter.app/latest?from=JPY&to=TWD"
+        : `https://api.frankfurter.app/${date}?from=JPY&to=TWD`;
+      const res = await fetch(url);
       const data = await res.json();
       const rate = data.rates?.TWD;
       if (rate) setBatchForm(f => ({ ...f, [field]: parseFloat(rate.toFixed(4)) }));
@@ -99,6 +104,10 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   const [saving, setSaving] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryPayments, setSummaryPayments] = useState({});
+  const [showCardCharges, setShowCardCharges] = useState(false);
+  const [cardCharges, setCardCharges] = useState([]);
+  const [cardChargeForm, setCardChargeForm] = useState({ twd_amount: "", jpy_amount: "", category: "商品", note: "" });
+  const [savingCharge, setSavingCharge] = useState(false);
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
   const [dragCol, setDragCol] = useState(null);
@@ -143,6 +152,33 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => { fetchAllPayments(); }, [orders]);
+  useEffect(() => { fetchCardCharges(); }, [batch.id]);
+
+  async function fetchCardCharges() {
+    const { data } = await supabase.from("card_charges").select("*").eq("batch_id", batch.id).order("created_at");
+    setCardCharges(data || []);
+  }
+
+  async function addCardCharge() {
+    if (!cardChargeForm.twd_amount) return alert("請填寫台幣金額");
+    setSavingCharge(true);
+    await supabase.from("card_charges").insert([{
+      batch_id: batch.id,
+      twd_amount: parseFloat(cardChargeForm.twd_amount),
+      jpy_amount: cardChargeForm.jpy_amount ? parseFloat(cardChargeForm.jpy_amount) : null,
+      category: cardChargeForm.category,
+      note: cardChargeForm.note,
+    }]);
+    setCardChargeForm({ twd_amount: "", jpy_amount: "", category: "商品", note: "" });
+    setSavingCharge(false);
+    fetchCardCharges();
+  }
+
+  async function deleteCardCharge(id) {
+    if (!confirm("確定刪除這筆刷卡記錄？")) return;
+    await supabase.from("card_charges").delete().eq("id", id);
+    fetchCardCharges();
+  }
 
   async function fetchAllPayments() {
     if (!orders.length) return;
@@ -374,6 +410,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
         </div>
         <div className="header-actions">
           <button className="btn-summary" onClick={() => setShowSummary(true)}>📋 收款統計</button>
+          <button className="btn-card-charge" onClick={() => setShowCardCharges(true)}>💳 刷卡記錄</button>
           <button className="btn-export" onClick={exportBatchCSV}>⬇ 匯出 CSV</button>
           <button className="btn-secondary" onClick={() => setShowShippingCalc(true)}>⚖️ 運費分攤</button>
           <button className="btn-primary" onClick={() => { setEditingOrder(null); setForm({...emptyForm, items:[{name:"",jpy_price:"",quantity:1,weight_g:"",shop_id:defaultShopId}]}); setShowOrderForm(true); }}>＋ 新增訂單</button>
@@ -386,6 +423,12 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
         <div className="profit-item"><span className="profit-label">實際總成本</span><span className="profit-value neg">-NT${Math.round(profit.totalRealCost).toLocaleString()}</span></div>
         <div className="profit-item"><span className="profit-label">吸收運費</span><span className="profit-value neg">-NT${profit.absorbed.toLocaleString()}</span></div>
         <div className="profit-item highlight"><span className="profit-label">淨利</span><span className="profit-value net">NT${Math.round(profit.net).toLocaleString()}</span></div>
+        {cardCharges.length > 0 && (
+          <div className="profit-item" style={{cursor:"pointer"}} onClick={() => setShowCardCharges(true)}>
+            <span className="profit-label">💳 刷卡總計</span>
+            <span className="profit-value" style={{color:"var(--accent)"}}>NT${Math.round(cardCharges.reduce((s,c)=>s+Number(c.twd_amount),0)).toLocaleString()}</span>
+          </div>
+        )}
       </div>
 
       {/* Orders Table */}
@@ -630,7 +673,10 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             </div>
             <div className="form-grid">
               <label className="form-label">客人名稱 / ID
-                <input className="form-input" placeholder="例：小花、IG@xxx" value={form.customer} onChange={e => setFormField("customer", e.target.value)} />
+                <div style={{display:"flex", gap:"8px"}}>
+                  <input className="form-input" placeholder="例：小花、IG@xxx" value={form.customer} onChange={e => setFormField("customer", e.target.value)} style={{flex:1}} />
+                  <button type="button" className="btn-preset-customer" onClick={() => setFormField("customer", "現貨")}>現貨</button>
+                </div>
               </label>
               <label className="form-label">付款方式
                 <select className="form-input" value={form.payment_method} onChange={e => setFormField("payment_method", e.target.value)}>
@@ -687,7 +733,74 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
         </div>
       )}
 
-      {/* ── Summary Modal ── */}
+      {/* ── Card Charges Modal ── */}
+      {showCardCharges && (
+        <div className="modal-overlay" onClick={() => setShowCardCharges(false)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>💳 刷卡記錄　{batch.name}</h2>
+                <p style={{fontSize:"12px", color:"var(--text3)", marginTop:"4px"}}>記錄實際信用卡刷卡金額，用於對帳</p>
+              </div>
+              <button className="modal-close" onClick={() => setShowCardCharges(false)}>✕</button>
+            </div>
+
+            {/* Totals */}
+            {cardCharges.length > 0 && (
+              <div className="card-charge-summary">
+                {["商品","國際運費","境內運費","其他"].map(cat => {
+                  const total = cardCharges.filter(c => c.category === cat).reduce((s,c) => s + Number(c.twd_amount), 0);
+                  if (!total) return null;
+                  return <div key={cat} className="cc-sum-item"><span>{cat}</span><span className="twd-text">NT${Math.round(total).toLocaleString()}</span></div>;
+                })}
+                <div className="cc-sum-total"><span>刷卡總計</span><span className="accent-text">NT${Math.round(cardCharges.reduce((s,c)=>s+Number(c.twd_amount),0)).toLocaleString()}</span></div>
+              </div>
+            )}
+
+            {/* Records list */}
+            {cardCharges.length > 0 && (
+              <div className="payment-records-list">
+                {cardCharges.map(c => (
+                  <div key={c.id} className="payment-record-row">
+                    <span className="cc-cat-tag">{c.category}</span>
+                    <span className="pr-note">{c.note || "—"}</span>
+                    {c.jpy_amount && <span className="pr-date">¥{Number(c.jpy_amount).toLocaleString()}</span>}
+                    <span className="pr-amount twd-text">NT${Number(c.twd_amount).toLocaleString()}</span>
+                    <button className="btn-danger-sm" onClick={() => deleteCardCharge(c.id)}>刪除</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new */}
+            <div className="cc-add-section">
+              <h3 style={{fontSize:"13px", color:"var(--text2)", marginBottom:"10px"}}>新增刷卡記錄</h3>
+              <div className="form-grid">
+                <label className="form-label">類別
+                  <select className="form-input" value={cardChargeForm.category} onChange={e => setCardChargeForm(f=>({...f, category:e.target.value}))}>
+                    {["商品","國際運費","境內運費","其他"].map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </label>
+                <label className="form-label">台幣金額 *
+                  <input className="form-input" type="number" placeholder="NT$" value={cardChargeForm.twd_amount} onChange={e => setCardChargeForm(f=>({...f, twd_amount:e.target.value}))} />
+                </label>
+                <label className="form-label">日幣金額（選填）
+                  <input className="form-input" type="number" placeholder="¥" value={cardChargeForm.jpy_amount} onChange={e => setCardChargeForm(f=>({...f, jpy_amount:e.target.value}))} />
+                </label>
+                <label className="form-label">備註
+                  <input className="form-input" placeholder="例：Animate 訂單" value={cardChargeForm.note} onChange={e => setCardChargeForm(f=>({...f, note:e.target.value}))} />
+                </label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowCardCharges(false)}>關閉</button>
+              <button className="btn-primary" onClick={addCardCharge} disabled={savingCharge}>{savingCharge ? "儲存中..." : "新增"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Summary Modal ── */}}
       {showSummary && (
         <div className="modal-overlay" onClick={() => setShowSummary(false)}>
           <div className="modal modal-summary" onClick={e => e.stopPropagation()}>

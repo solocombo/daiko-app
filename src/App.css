@@ -1325,3 +1325,74 @@ select.form-input { cursor: pointer; }
 .theme-light .summary-card { background: var(--surface2); border-color: var(--border); }
 .theme-light .summary-card-header { background: var(--surface); border-color: var(--border); }
 .theme-light .order-card { background: var(--surface); }
+
+/* ── Inventory ── */
+.inventory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.inventory-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.inventory-card:hover { border-color: var(--accent2); }
+.inv-sold-out { opacity: 0.55; }
+.inventory-card-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 14px 16px; background: var(--surface2); border-bottom: 1px solid var(--border);
+}
+.inventory-name { font-weight: 700; font-size: 15px; color: var(--text); margin-bottom: 2px; }
+.inventory-shop { font-size: 11px; color: var(--text3); }
+.inv-status-badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px; white-space: nowrap; }
+.inv-in { background: rgba(62,207,142,0.15); color: var(--green); }
+.inv-out { background: rgba(139,146,168,0.15); color: var(--text3); }
+.inv-partial { background: rgba(232,160,69,0.15); color: var(--accent); }
+.inventory-stats { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+.inv-stat { flex: 1; padding: 10px 14px; border-right: 1px solid var(--border); }
+.inv-stat:last-child { border-right: none; }
+.inv-stat-label { font-size: 10px; color: var(--text3); display: block; margin-bottom: 2px; }
+.inv-stat-value { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--text); }
+.inventory-costs { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+.inv-cost-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); }
+.inv-cost-label { color: var(--text3); }
+.inv-jpy { color: var(--text3); font-size: 11px; }
+.inv-per { color: var(--text3); font-size: 11px; }
+.inventory-note { padding: 8px 16px; font-size: 12px; color: var(--text3); border-bottom: 1px solid var(--border); }
+.inventory-actions { display: flex; gap: 6px; padding: 10px 14px; align-items: center; }
+.btn-sell {
+  background: rgba(91,141,238,0.12); border: 1px solid rgba(91,141,238,0.35);
+  color: var(--accent2); padding: 5px 12px; border-radius: 6px; font-size: 12px;
+  font-weight: 600; cursor: pointer; transition: all 0.15s; flex: 1;
+}
+.btn-sell:hover { background: rgba(91,141,238,0.22); }
+.sell-modal-info { background: var(--surface2); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
+.sell-item-name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.sell-remaining { font-size: 13px; color: var(--text2); }
+
+/* ── Card charges ── */
+.btn-card-charge {
+  background: rgba(232,160,69,0.12); border: 1px solid rgba(232,160,69,0.35);
+  color: var(--accent); padding: 9px 18px; border-radius: var(--radius);
+  font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.btn-card-charge:hover { background: rgba(232,160,69,0.22); }
+.card-charge-summary {
+  background: var(--surface2); border-radius: var(--radius); padding: 14px 16px;
+  margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.cc-sum-item { display: flex; justify-content: space-between; font-size: 13px; color: var(--text2); }
+.cc-sum-total { display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; padding-top: 8px; border-top: 1px solid var(--border); }
+.accent-text { color: var(--accent); font-family: var(--font-mono); }
+.cc-cat-tag {
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 2px 8px; border-radius: 4px; font-size: 11px; color: var(--text2); white-space: nowrap;
+}
+.cc-add-section { background: var(--surface2); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 8px; }
+
+/* ── Preset customer button ── */
+.btn-preset-customer {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 9px 12px; border-radius: var(--radius); font-size: 12px; cursor: pointer;
+  white-space: nowrap; transition: all 0.15s;
+}
+.btn-preset-customer:hover { border-color: var(--accent); color: var(--accent); }
