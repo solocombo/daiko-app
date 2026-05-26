@@ -9,6 +9,7 @@ import Forwarders from "./components/Forwarders";
 import Shops from "./components/Shops";
 import Credits from "./components/Credits";
 import Inventory from "./components/Inventory";
+import IntlShipping from "./components/IntlShipping";
 import "./App.css";
 
 const SETTINGS_KEY = "daiko_settings";
@@ -71,6 +72,7 @@ export default function App() {
             <button className={`nav-btn ${page === "profit" ? "active" : ""}`} onClick={() => nav("profit")}><span className="nav-icon">💴</span>提款記錄</button>
             <button className={`nav-btn ${page === "credits" ? "active" : ""}`} onClick={() => nav("credits")}><span className="nav-icon">💳</span>儲值清單</button>
             <button className={`nav-btn ${page === "inventory" ? "active" : ""}`} onClick={() => nav("inventory")}><span className="nav-icon">🏪</span>庫存管理</button>
+            <button className={`nav-btn ${page === "intl-shipping" ? "active" : ""}`} onClick={() => nav("intl-shipping")}><span className="nav-icon">✈️</span>國際運費</button>
             <button className={`nav-btn ${page === "forwarders" ? "active" : ""}`} onClick={() => nav("forwarders")}><span className="nav-icon">🚚</span>集運商</button>
             <button className={`nav-btn ${page === "shops" ? "active" : ""}`} onClick={() => nav("shops")}><span className="nav-icon">🛍️</span>購物網站</button>
             <button className={`nav-btn ${page === "settings" ? "active" : ""}`} onClick={() => nav("settings")}><span className="nav-icon">⚙️</span>系統設定</button>
@@ -106,6 +108,7 @@ export default function App() {
             {page === "profit" && <ProfitDashboard batches={batches} orders={orders} settings={settings} />}
             {page === "credits" && <Credits />}
             {page === "inventory" && <Inventory shops={shops} />}
+            {page === "intl-shipping" && <IntlShipping batches={batches} orders={orders} />}
             {page === "forwarders" && <Forwarders forwarders={forwarders} onRefresh={fetchAll} />}
             {page === "shops" && <Shops shops={shops} onRefresh={fetchAll} />}
             {page === "settings" && <Settings settings={settings} onSave={saveSettings} />}

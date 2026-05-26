@@ -1396,3 +1396,57 @@ select.form-input { cursor: pointer; }
   white-space: nowrap; transition: all 0.15s;
 }
 .btn-preset-customer:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Custom price inline input ── */
+.unit-price-cell { display: flex; align-items: center; gap: 4px; }
+.custom-price-input {
+  width: 72px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+.custom-price-input:focus { outline: none; border-color: var(--accent); }
+.custom-price-badge {
+  font-size: 9px; background: rgba(232,160,69,0.2); color: var(--accent);
+  padding: 1px 4px; border-radius: 3px; white-space: nowrap;
+}
+.skip-profit-badge {
+  font-size: 10px; background: rgba(139,146,168,0.2); color: var(--text3);
+  padding: 1px 6px; border-radius: 3px; margin-left: 4px;
+}
+
+/* ── Editing row ── */
+.editing-row { background: rgba(91,141,238,0.06) !important; }
+.editing-row .form-input { padding: 4px 8px; font-size: 12px; }
+
+/* ── Intl Shipping ── */
+.intl-shipping-list { display: flex; flex-direction: column; gap: 14px; }
+.intl-shipping-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+}
+.intl-shipping-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 16px 18px; gap: 12px; flex-wrap: wrap;
+}
+.intl-shipping-name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.intl-shipping-meta { font-size: 13px; color: var(--text2); }
+.text-muted { color: var(--text3); }
+.intl-shipping-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.intl-shipping-breakdown { padding: 0 16px 16px; }
+
+/* ── Batch checkbox list ── */
+.batch-checkbox-list { display: flex; flex-direction: column; gap: 6px; }
+.batch-checkbox-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--surface);
+  border-radius: var(--radius); cursor: pointer; font-size: 13px;
+  transition: background 0.12s;
+}
+.batch-checkbox-item:hover { background: var(--border); }
+.batch-checkbox-item input { cursor: pointer; }

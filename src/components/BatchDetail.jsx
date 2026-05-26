@@ -22,18 +22,29 @@ function calcItem(item, jpyRate, proxyRate) {
   const ccFee = costTwd * 0.015;
   const ccRebate = costTwd * 0.01;
   const realCost = costTwd + ccFee - ccRebate;
-  const unitPrice = ceilTo10(jpyUnit * proxyRate);
+  // Use custom_unit_price override if set, otherwise calculate
+  const unitPrice = item.custom_unit_price != null
+    ? Number(item.custom_unit_price)
+    : ceilTo10(jpyUnit * proxyRate);
   const totalPrice = unitPrice * qty;
   const profit = totalPrice - realCost;
-  return { qty, jpyUnit, jpyTotal, costTwd, ccFee, ccRebate, realCost, unitPrice, totalPrice, profit };
+  return { qty, jpyUnit, jpyTotal, costTwd, ccFee, ccRebate, realCost, unitPrice, totalPrice, profit, isCustomPrice: item.custom_unit_price != null };
 }
+
+const SKIP_PROFIT_KEYWORDS = ["現貨"];
 
 const TODAY = new Date().toISOString().split("T")[0];
 
 export default function BatchDetail({ batch, orders, forwarders, shops, onRefresh, onBack, settings, onGoForwarders, onGoShops }) {
   const proxyRate = settings?.proxy_rate || 0.25;
   const jpyRate = batch.jpy_rate;
-  const shippingRate = batch.shipping_rate || batch.jpy_rate; // fallback to jpy_rate
+  const shippingRate = batch.shipping_rate || batch.jpy_rate;
+  // Customers whose orders don't count toward profit
+  const skipProfitCustomers = new Set([
+    "現貨",
+    ...(settings?.member1 ? [settings.member1] : []),
+    ...(settings?.member2 ? [settings.member2] : []),
+  ]);
 
   // ── Batch edit state ──────────────────────────────────────────────────────
   const [showBatchEdit, setShowBatchEdit] = useState(false);
@@ -346,10 +357,106 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
     fetchAllPayments(); onRefresh();
   }
 
-  // ── Profit ────────────────────────────────────────────────────────────────
+  // ── Domestic JP shipping state ───────────────────────────────────────────
+  const [domesticShippings, setDomesticShippings] = useState([]);
+  const [showDomesticShipping, setShowDomesticShipping] = useState(false);
+  const [dsForm, setDsForm] = useState({ amount_jpy: "", note: "" });
+  const [editingDs, setEditingDs] = useState(null);
+
+  useEffect(() => { fetchDomesticShippings(); }, [batch.id]);
+
+  async function fetchDomesticShippings() {
+    const { data } = await supabase.from("domestic_shipping_jp").select("*").eq("batch_id", batch.id).order("created_at");
+    setDomesticShippings(data || []);
+  }
+
+  async function saveDomesticShipping() {
+    if (!dsForm.amount_jpy) return alert("請填寫日幣金額");
+    if (editingDs) {
+      await supabase.from("domestic_shipping_jp").update({ amount_jpy: parseFloat(dsForm.amount_jpy), note: dsForm.note }).eq("id", editingDs.id);
+    } else {
+      await supabase.from("domestic_shipping_jp").insert([{ batch_id: batch.id, amount_jpy: parseFloat(dsForm.amount_jpy), note: dsForm.note }]);
+    }
+    setDsForm({ amount_jpy: "", note: "" });
+    setEditingDs(null);
+    fetchDomesticShippings();
+  }
+
+  async function deleteDomesticShipping(id) {
+    if (!confirm("確定刪除？")) return;
+    await supabase.from("domestic_shipping_jp").delete().eq("id", id);
+    fetchDomesticShippings();
+  }
+
+  // Total items per order (for domestic shipping split by item count)
+  const totalItemCount = useMemo(() =>
+    orders.reduce((sum, o) => sum + (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + (Number(i.quantity) || 1), 0), 0),
+    [orders]);
+
+  const domesticShippingPerOrder = useMemo(() => {
+    if (!domesticShippings.length || totalItemCount === 0) return {};
+    const totalJpy = domesticShippings.reduce((s, d) => s + Number(d.amount_jpy), 0);
+    const totalTwd = totalJpy * jpyRate;
+    return orders.reduce((acc, o) => {
+      const cnt = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + (Number(i.quantity) || 1), 0);
+      acc[o.id] = totalItemCount > 0 ? (cnt / totalItemCount) * totalTwd : 0;
+      return acc;
+    }, {});
+  }, [orders, domesticShippings, totalItemCount, jpyRate]);
+
+  // ── Custom price editing ──────────────────────────────────────────────────
+  async function updateCustomPrice(itemId, value) {
+    const parsed = value === "" ? null : parseFloat(value);
+    await supabase.from("order_items").update({ custom_unit_price: parsed }).eq("id", itemId);
+    onRefresh();
+  }
+
+  // ── Payment record editing ────────────────────────────────────────────────
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({ amount: "", note: "", paid_at: "" });
+
+  function openEditPayment(p) {
+    setEditingPayment(p);
+    setEditPaymentForm({ amount: String(p.amount), note: p.note || "", paid_at: p.paid_at });
+  }
+
+  async function saveEditPayment() {
+    await supabase.from("payment_records").update({
+      amount: parseFloat(editPaymentForm.amount),
+      note: editPaymentForm.note,
+      paid_at: editPaymentForm.paid_at,
+    }).eq("id", editingPayment.id);
+    setEditingPayment(null);
+    const { data } = await supabase.from("payment_records").select("*").eq("order_id", paymentOrder.id).order("created_at");
+    setPaymentRecords(data || []);
+    fetchAllPayments(); onRefresh();
+  }
+
+  // ── Card charge editing ───────────────────────────────────────────────────
+  const [editingCharge, setEditingCharge] = useState(null);
+  const [editChargeForm, setEditChargeForm] = useState({ twd_amount: "", jpy_amount: "", category: "", note: "" });
+
+  function openEditCharge(c) {
+    setEditingCharge(c);
+    setEditChargeForm({ twd_amount: String(c.twd_amount), jpy_amount: c.jpy_amount ? String(c.jpy_amount) : "", category: c.category, note: c.note || "" });
+  }
+
+  async function saveEditCharge() {
+    await supabase.from("card_charges").update({
+      twd_amount: parseFloat(editChargeForm.twd_amount),
+      jpy_amount: editChargeForm.jpy_amount ? parseFloat(editChargeForm.jpy_amount) : null,
+      category: editChargeForm.category,
+      note: editChargeForm.note,
+    }).eq("id", editingCharge.id);
+    setEditingCharge(null);
+    fetchCardCharges();
+  }
+
+  // ── Profit (skip special customers) ───────────────────────────────────────
   const profit = useMemo(() => {
     let totalRealCost = 0, totalPrice = 0;
     orders.forEach(o => {
+      if (skipProfitCustomers.has(o.customer)) return;
       (o.order_items || []).filter(i => !i.not_obtained).forEach(i => {
         const c = calcItem(i, jpyRate, proxyRate);
         totalRealCost += c.realCost; totalPrice += c.totalPrice;
@@ -358,7 +465,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
     const absorbed = Number(batch.absorbed_shipping_twd) || 0;
     const net = totalPrice - totalRealCost - absorbed;
     return { totalRealCost, totalPrice, absorbed, net };
-  }, [orders, batch, jpyRate, proxyRate]);
+  }, [orders, batch, jpyRate, proxyRate, skipProfitCustomers]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getShopName = (id) => shops.find(s => s.id === id)?.name || "—";
@@ -404,12 +511,15 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             商品匯率 <strong>{jpyRate}</strong>　
             運費匯率 <strong>{shippingRate}</strong>　
             代購匯率 <strong>{proxyRate}</strong>　
-            國際運費 ¥{Number(batch.total_intl_shipping_jpy || 0).toLocaleString()}
-            {batchShopName !== "—" && <>　購買網站 <strong>{batchShopName}</strong></>}
+            {batchShopName !== "—" && <>購買網站 <strong>{batchShopName}</strong>　</>}
+            {domesticShippings.length > 0 && <>
+              境內運費 <strong>¥{Math.round(domesticShippings.reduce((s,d)=>s+Number(d.amount_jpy),0)).toLocaleString()}</strong>（{domesticShippings.length}筆）　
+            </>}
           </p>
         </div>
         <div className="header-actions">
           <button className="btn-summary" onClick={() => setShowSummary(true)}>📋 收款統計</button>
+          <button className="btn-card-charge" onClick={() => setShowDomesticShipping(true)}>🚚 境內運費</button>
           <button className="btn-card-charge" onClick={() => setShowCardCharges(true)}>💳 刷卡記錄</button>
           <button className="btn-export" onClick={exportBatchCSV}>⬇ 匯出 CSV</button>
           <button className="btn-secondary" onClick={() => setShowShippingCalc(true)}>⚖️ 運費分攤</button>
@@ -466,7 +576,10 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
           const fwName = getFwName(order.forwarder_id);
           switch(col) {
             case "ops": return <td key={col} className="center"><button className="btn-record-payment-sm" onClick={()=>openPaymentModal(order)}>💳</button><button className="btn-edit-sm" onClick={()=>openEdit(order)}>編輯</button><button className="btn-danger-sm" onClick={()=>deleteOrder(order.id)}>刪除</button></td>;
-            case "customer": return <td key={col}><div className="customer-name">{order.customer}</div>{order.note&&<div className="order-note">📝 {order.note}</div>}</td>;
+            case "customer": return <td key={col}><div className="customer-name">
+              {order.customer}
+              {skipProfitCustomers.has(order.customer) && <span className="skip-profit-badge">不計利潤</span>}
+            </div>{order.note&&<div className="order-note">📝 {order.note}</div>}</td>;
             case "items": return <td key={col}><div className="item-list-detail">{(order.order_items||[]).map((item,idx)=><div key={idx} className={`item-detail-row ${item.not_obtained?"item-not-obtained":""}`}><span className="item-detail-name">{item.name}</span>{item.not_obtained&&<span className="not-obtained-badge">未搶到</span>}<button className={`btn-not-obtained ${item.not_obtained?"active":""}`} onClick={()=>toggleNotObtained(item.id,item.not_obtained)}>{item.not_obtained?"↩":"✕"}</button></div>)}</div></td>;
             case "shop": return <td key={col} className="center"><div className="item-list-detail">{activeItems.map((item,idx)=><div key={idx} className="multi-val">{getShopName(item.shop_id)}</div>)}</div></td>;
             case "qty": return <td key={col} className="center">{activeItems.reduce((s,i)=>s+(Number(i.quantity)||1),0)}</td>;
@@ -475,9 +588,23 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             case "fee": return <td key={col} className="number neg">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).ccFee,0)).toLocaleString()}</td>;
             case "rebate": return <td key={col} className="number green">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).ccRebate,0)).toLocaleString()}</td>;
             case "realCost": return <td key={col} className="number">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).realCost,0)).toLocaleString()}</td>;
-            case "unitPrice": return <td key={col} className="number">{activeItems.map((i,idx)=><div key={idx} className="multi-val">NT${calcItem(i,jpyRate,proxyRate).unitPrice.toLocaleString()}</div>)}</td>;
+            case "unitPrice": return <td key={col} className="number">{activeItems.map((i,idx)=>{
+              const c = calcItem(i,jpyRate,proxyRate);
+              return <div key={idx} className="multi-val unit-price-cell">
+                <input
+                  className="custom-price-input"
+                  type="number"
+                  title="手動覆蓋定價（留空用計算值）"
+                  placeholder={String(c.isCustomPrice ? "" : c.unitPrice)}
+                  value={i.custom_unit_price != null ? i.custom_unit_price : ""}
+                  onChange={e => updateCustomPrice(i.id, e.target.value)}
+                  onBlur={e => { if(e.target.value === "") updateCustomPrice(i.id, ""); }}
+                />
+                {c.isCustomPrice && <span className="custom-price-badge">手動</span>}
+              </div>;
+            })}</td>;
             case "totalPrice": return <td key={col} className="number twd">NT${Math.round(totalOrderPrice).toLocaleString()}</td>;
-            case "profit": return <td key={col} className="number net">NT${Math.round(totalProfit).toLocaleString()}</td>;
+            case "profit": return <td key={col} className={skipProfitCustomers.has(order.customer) ? "number" : "number net"}>{skipProfitCustomers.has(order.customer) ? <span style={{color:"var(--text3)"}}>—</span> : `NT$${Math.round(totalProfit).toLocaleString()}`}</td>;
             case "weight": return <td key={col} className="center">{activeItems.reduce((s,i)=>s+Number(i.weight_g||0),0)}g</td>;
             case "forwarder": return <td key={col} className="center"><span className="forwarder-tag">{fwName}</span></td>;
             case "shipping": return <td key={col} className="number">{order.shipping_twd>0?`NT$${Math.round(order.shipping_twd).toLocaleString()}`:"—"}</td>;
@@ -642,12 +769,23 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             {paymentRecords.length > 0 && (
               <div className="payment-records-list">
                 {paymentRecords.map(p => (
-                  <div key={p.id} className="payment-record-row">
-                    <span className="pr-date">{p.paid_at}</span>
-                    <span className="pr-note">{p.note || "—"}</span>
-                    <span className="pr-amount net-text">NT${Number(p.amount).toLocaleString()}</span>
-                    <button className="btn-danger-sm" onClick={() => deletePaymentRecord(p.id)}>刪除</button>
-                  </div>
+                  editingPayment?.id === p.id ? (
+                    <div key={p.id} className="payment-record-row editing-row">
+                      <input className="form-input" type="date" value={editPaymentForm.paid_at} onChange={e => setEditPaymentForm(f=>({...f,paid_at:e.target.value}))} style={{width:"130px"}} />
+                      <input className="form-input" placeholder="備註" value={editPaymentForm.note} onChange={e => setEditPaymentForm(f=>({...f,note:e.target.value}))} style={{flex:1}} />
+                      <input className="form-input" type="number" value={editPaymentForm.amount} onChange={e => setEditPaymentForm(f=>({...f,amount:e.target.value}))} style={{width:"100px"}} />
+                      <button className="btn-edit-sm" onClick={saveEditPayment}>✓</button>
+                      <button className="btn-secondary" style={{padding:"4px 8px",fontSize:"12px"}} onClick={() => setEditingPayment(null)}>✕</button>
+                    </div>
+                  ) : (
+                    <div key={p.id} className="payment-record-row">
+                      <span className="pr-date">{p.paid_at}</span>
+                      <span className="pr-note">{p.note || "—"}</span>
+                      <span className="pr-amount net-text">NT${Number(p.amount).toLocaleString()}</span>
+                      <button className="btn-edit-sm" onClick={() => openEditPayment(p)}>編輯</button>
+                      <button className="btn-danger-sm" onClick={() => deletePaymentRecord(p.id)}>刪除</button>
+                    </div>
+                  )
                 ))}
               </div>
             )}
@@ -733,6 +871,81 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
         </div>
       )}
 
+      {/* ── Domestic Shipping Modal ── */}
+      {showDomesticShipping && (
+        <div className="modal-overlay" onClick={() => setShowDomesticShipping(false)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>🚚 日本境內運費　{batch.name}</h2>
+                <p style={{fontSize:"12px",color:"var(--text3)",marginTop:"4px"}}>按商品件數分攤給客人</p>
+              </div>
+              <button className="modal-close" onClick={() => setShowDomesticShipping(false)}>✕</button>
+            </div>
+
+            {domesticShippings.length > 0 && (
+              <div className="card-charge-summary">
+                <div className="cc-sum-item"><span>總境內運費</span><span>¥{Math.round(domesticShippings.reduce((s,d)=>s+Number(d.amount_jpy),0)).toLocaleString()} → NT${Math.round(domesticShippings.reduce((s,d)=>s+Number(d.amount_jpy),0) * jpyRate).toLocaleString()}</span></div>
+                <div className="cc-sum-item"><span>總件數</span><span>{totalItemCount} 件</span></div>
+                <div className="cc-sum-total"><span>每件分攤</span><span className="accent-text">NT${totalItemCount > 0 ? Math.round(domesticShippings.reduce((s,d)=>s+Number(d.amount_jpy),0) * jpyRate / totalItemCount).toLocaleString() : 0}</span></div>
+              </div>
+            )}
+
+            {/* Records */}
+            <div className="payment-records-list">
+              {domesticShippings.map(d => (
+                editingDs?.id === d.id ? (
+                  <div key={d.id} className="payment-record-row editing-row">
+                    <input className="form-input" type="number" placeholder="¥" value={dsForm.amount_jpy} onChange={e => setDsForm(f=>({...f,amount_jpy:e.target.value}))} style={{width:"120px"}} />
+                    <input className="form-input" placeholder="備註" value={dsForm.note} onChange={e => setDsForm(f=>({...f,note:e.target.value}))} style={{flex:1}} />
+                    <button className="btn-edit-sm" onClick={saveDomesticShipping}>✓</button>
+                    <button className="btn-secondary" style={{padding:"4px 8px",fontSize:"12px"}} onClick={() => { setEditingDs(null); setDsForm({amount_jpy:"",note:""}); }}>✕</button>
+                  </div>
+                ) : (
+                  <div key={d.id} className="payment-record-row">
+                    <span className="pr-note">{d.note || "—"}</span>
+                    <span className="pr-amount twd-text">¥{Number(d.amount_jpy).toLocaleString()}</span>
+                    <span className="pr-date">→ NT${Math.round(Number(d.amount_jpy) * jpyRate).toLocaleString()}</span>
+                    <button className="btn-edit-sm" onClick={() => { setEditingDs(d); setDsForm({amount_jpy:String(d.amount_jpy),note:d.note||""}); }}>編輯</button>
+                    <button className="btn-danger-sm" onClick={() => deleteDomesticShipping(d.id)}>刪除</button>
+                  </div>
+                )
+              ))}
+            </div>
+
+            {/* Per-order breakdown */}
+            {domesticShippings.length > 0 && orders.length > 0 && (
+              <div className="cc-add-section" style={{marginBottom:"8px"}}>
+                <h3 style={{fontSize:"13px",color:"var(--text2)",marginBottom:"10px"}}>各客人分攤</h3>
+                {orders.map(o => {
+                  const cnt = (o.order_items||[]).filter(i=>!i.not_obtained).reduce((s,i)=>s+(Number(i.quantity)||1),0);
+                  const share = Math.round(domesticShippingPerOrder[o.id] || 0);
+                  if (!cnt) return null;
+                  return <div key={o.id} className="cc-sum-item"><span>{o.customer}（{cnt}件）</span><span className="twd-text">NT${share.toLocaleString()}</span></div>;
+                })}
+              </div>
+            )}
+
+            {/* Add new */}
+            <div className="cc-add-section">
+              <h3 style={{fontSize:"13px",color:"var(--text2)",marginBottom:"10px"}}>新增境內運費</h3>
+              <div className="form-grid">
+                <label className="form-label">金額（日幣 ¥）*
+                  <input className="form-input" type="number" value={dsForm.amount_jpy} onChange={e => setDsForm(f=>({...f,amount_jpy:e.target.value}))} />
+                </label>
+                <label className="form-label">備註
+                  <input className="form-input" placeholder="例：Tenso 轉送費" value={dsForm.note} onChange={e => setDsForm(f=>({...f,note:e.target.value}))} />
+                </label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowDomesticShipping(false)}>關閉</button>
+              <button className="btn-primary" onClick={saveDomesticShipping}>新增</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Card Charges Modal ── */}
       {showCardCharges && (
         <div className="modal-overlay" onClick={() => setShowCardCharges(false)}>
@@ -761,13 +974,27 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             {cardCharges.length > 0 && (
               <div className="payment-records-list">
                 {cardCharges.map(c => (
-                  <div key={c.id} className="payment-record-row">
-                    <span className="cc-cat-tag">{c.category}</span>
-                    <span className="pr-note">{c.note || "—"}</span>
-                    {c.jpy_amount && <span className="pr-date">¥{Number(c.jpy_amount).toLocaleString()}</span>}
-                    <span className="pr-amount twd-text">NT${Number(c.twd_amount).toLocaleString()}</span>
-                    <button className="btn-danger-sm" onClick={() => deleteCardCharge(c.id)}>刪除</button>
-                  </div>
+                  editingCharge?.id === c.id ? (
+                    <div key={c.id} className="payment-record-row editing-row">
+                      <select className="form-input" value={editChargeForm.category} onChange={e => setEditChargeForm(f=>({...f,category:e.target.value}))} style={{width:"110px"}}>
+                        {["商品","國際運費","境內運費","其他"].map(cat=><option key={cat}>{cat}</option>)}
+                      </select>
+                      <input className="form-input" placeholder="備註" value={editChargeForm.note} onChange={e => setEditChargeForm(f=>({...f,note:e.target.value}))} style={{flex:1}} />
+                      <input className="form-input" type="number" placeholder="¥" value={editChargeForm.jpy_amount} onChange={e => setEditChargeForm(f=>({...f,jpy_amount:e.target.value}))} style={{width:"90px"}} />
+                      <input className="form-input" type="number" placeholder="NT$" value={editChargeForm.twd_amount} onChange={e => setEditChargeForm(f=>({...f,twd_amount:e.target.value}))} style={{width:"100px"}} />
+                      <button className="btn-edit-sm" onClick={saveEditCharge}>✓</button>
+                      <button className="btn-secondary" style={{padding:"4px 8px",fontSize:"12px"}} onClick={() => setEditingCharge(null)}>✕</button>
+                    </div>
+                  ) : (
+                    <div key={c.id} className="payment-record-row">
+                      <span className="cc-cat-tag">{c.category}</span>
+                      <span className="pr-note">{c.note || "—"}</span>
+                      {c.jpy_amount && <span className="pr-date">¥{Number(c.jpy_amount).toLocaleString()}</span>}
+                      <span className="pr-amount twd-text">NT${Number(c.twd_amount).toLocaleString()}</span>
+                      <button className="btn-edit-sm" onClick={() => openEditCharge(c)}>編輯</button>
+                      <button className="btn-danger-sm" onClick={() => deleteCardCharge(c.id)}>刪除</button>
+                    </div>
+                  )
                 ))}
               </div>
             )}
