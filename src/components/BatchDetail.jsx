@@ -293,16 +293,17 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
       if (form.customer === "現貨") {
         for (const item of form.items) {
           if (!item.name || !item.jpy_price) continue;
+          // Check if already exists
+          const { data: existing } = await supabase.from("inventory")
+            .select("id").eq("name", item.name)
+            .eq("note", `自動從批次「${batch.name}」匯入`).maybeSingle();
+          if (existing) continue;
           const twdCost = Math.round(Number(item.jpy_price) * jpyRate);
           await supabase.from("inventory").insert([{
-            name: item.name,
-            jpy_cost: Number(item.jpy_price),
-            twd_cost: twdCost,
-            quantity: Number(item.quantity) || 1,
-            sold: 0,
+            name: item.name, jpy_cost: Number(item.jpy_price), twd_cost: twdCost,
+            quantity: Number(item.quantity) || 1, sold: 0,
             shop_id: item.shop_id || null,
-            note: `自動從批次「${batch.name}」匯入`,
-            status: "庫存中",
+            note: `自動從批次「${batch.name}」匯入`, status: "庫存中",
           }]);
         }
       }
@@ -516,6 +517,45 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   const getFwName = (id) => forwarders.find(f => f.id === id)?.name || "—";
   const batchShopName = getShopName(batch.shop_id);
 
+  // ── Autocomplete: build item name->price map from all orders in this batch ──
+  const itemSuggestions = useMemo(() => {
+    const map = {};
+    orders.forEach(o => (o.order_items || []).forEach(i => {
+      if (i.name && i.jpy_price) map[i.name] = { jpy_price: i.jpy_price, weight_g: i.weight_g || "", shop_id: i.shop_id || "" };
+    }));
+    return map;
+  }, [orders]);
+
+  // ── Sync existing 現貨 orders to inventory ────────────────────────────────
+  const [syncing, setSyncing] = useState(false);
+
+  async function syncInventory() {
+    const inventoryOrders = orders.filter(o => o.customer === "現貨");
+    if (!inventoryOrders.length) return alert("這個批次沒有現貨訂單");
+    setSyncing(true);
+    let added = 0;
+    for (const o of inventoryOrders) {
+      for (const item of (o.order_items || [])) {
+        if (!item.name || !item.jpy_price) continue;
+        // Check if already exists (same name + same batch note)
+        const { data: existing } = await supabase.from("inventory")
+          .select("id").eq("name", item.name)
+          .eq("note", `自動從批次「${batch.name}」匯入`).maybeSingle();
+        if (existing) continue;
+        const twdCost = Math.round(Number(item.jpy_price) * jpyRate);
+        await supabase.from("inventory").insert([{
+          name: item.name, jpy_cost: Number(item.jpy_price), twd_cost: twdCost,
+          quantity: Number(item.quantity) || 1, sold: 0,
+          shop_id: item.shop_id || null,
+          note: `自動從批次「${batch.name}」匯入`, status: "庫存中",
+        }]);
+        added++;
+      }
+    }
+    setSyncing(false);
+    alert(`同步完成！新增了 ${added} 筆庫存${added === 0 ? "（可能都已存在）" : ""}`);
+  }
+
   // ── CSV ───────────────────────────────────────────────────────────────────
   function exportBatchCSV() {
     const header = ["客人","商品","購買網站","數量","日幣單價","成本台幣","手續費","回饋","實際成本","單件定價","定價總計","利潤","重量","集運商","運費尾款","應收","已付","尚欠","付款方式","備註"];
@@ -563,6 +603,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
         </div>
         <div className="header-actions">
           <button className="btn-summary" onClick={() => setShowSummary(true)}>📋 收款統計</button>
+          <button className="btn-card-charge" onClick={syncInventory} disabled={syncing}>{syncing ? "同步中..." : "🏪 同步庫存"}</button>
           <button className="btn-card-charge" onClick={() => setShowDomesticShipping(true)}>🚚 境內運費</button>
           <button className="btn-card-charge" onClick={() => setShowCardCharges(true)}>💳 刷卡記錄</button>
           <button className="btn-export" onClick={exportBatchCSV}>⬇ 匯出 CSV</button>
@@ -699,7 +740,10 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
                 {sortedOrders.map(order => {
                   const isFullyPaid = orderPaid(order.id) >= orderTotalDue(order) && orderTotalDue(order) > 0;
                   return (
-                    <tr key={order.id} className={isFullyPaid ? "row-done" : ""}>
+                    {(() => {
+                      const allNotObtained = (order.order_items||[]).length > 0 && (order.order_items||[]).every(i => i.not_obtained);
+                      return (
+                    <tr key={order.id} className={isFullyPaid || allNotObtained ? "row-done" : ""}>
                       {colOrder.map(col => renderCell(col, order))}
                     </tr>
                   );
@@ -886,9 +930,43 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
                 <h3>商品明細</h3>
                 <button className="btn-add-item" onClick={addItem}>＋ 新增商品</button>
               </div>
-              {form.items.map((item, idx) => (
+              {form.items.map((item, idx) => {
+                const suggestions = Object.keys(itemSuggestions).filter(n =>
+                  n.toLowerCase().includes((item.name || "").toLowerCase()) && item.name && n !== item.name
+                ).slice(0, 5);
+                return (
                 <div key={idx} className={`item-row ${item.not_obtained ? "item-not-obtained" : ""}`}>
-                  <input className="form-input item-name" placeholder="商品名稱" value={item.name} onChange={e => setItem(idx, "name", e.target.value)} />
+                  <div className="item-name-wrap">
+                    <input
+                      className="form-input item-name"
+                      placeholder="商品名稱"
+                      value={item.name}
+                      onChange={e => {
+                        setItem(idx, "name", e.target.value);
+                      }}
+                      list={`item-suggestions-${idx}`}
+                    />
+                    <datalist id={`item-suggestions-${idx}`}>
+                      {Object.keys(itemSuggestions).map(n => <option key={n} value={n} />)}
+                    </datalist>
+                    {suggestions.length > 0 && item.name && !itemSuggestions[item.name] && (
+                      <div className="item-suggestions-dropdown">
+                        {suggestions.map(n => (
+                          <div key={n} className="item-suggestion-row" onClick={() => {
+                            const s = itemSuggestions[n];
+                            setForm(f => {
+                              const items = [...f.items];
+                              items[idx] = { ...items[idx], name: n, jpy_price: s.jpy_price, weight_g: s.weight_g, shop_id: s.shop_id || items[idx].shop_id };
+                              return { ...f, items };
+                            });
+                          }}>
+                            <span>{n}</span>
+                            <span className="suggestion-price">¥{Number(s.jpy_price).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <input className="form-input" style={{width:"60px"}} type="number" min="1" placeholder="數量" value={item.quantity} onChange={e => setItem(idx, "quantity", e.target.value)} />
                   <div className="item-price-wrap">
                     <span className="item-prefix">¥</span>
@@ -908,6 +986,8 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
                   </label>
                   {form.items.length > 1 && <button className="btn-remove-item" onClick={() => removeItem(idx)}>✕</button>}
                 </div>
+                );
+              }
               ))}
             </div>
             <div className="modal-footer">

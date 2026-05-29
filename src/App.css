@@ -1450,3 +1450,30 @@ select.form-input { cursor: pointer; }
 }
 .batch-checkbox-item:hover { background: var(--border); }
 .batch-checkbox-item input { cursor: pointer; }
+
+/* ── Item name autocomplete ── */
+.item-name-wrap { position: relative; flex: 1; min-width: 120px; }
+.item-name-wrap .form-input { width: 100%; }
+.item-suggestions-dropdown {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  z-index: 200;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.item-suggestion-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  transition: background 0.1s;
+}
+.item-suggestion-row:hover { background: var(--surface2); }
+.suggestion-price { font-family: var(--font-mono); color: var(--accent2); font-size: 12px; }
