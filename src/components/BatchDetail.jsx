@@ -68,18 +68,29 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
 
   async function fetchRate(field) {
     setFetchingRate(field);
-    try {
-      const date = batchForm.date || new Date().toISOString().split("T")[0];
-      const today = new Date().toISOString().split("T")[0];
-      const url = date >= today
+    const date = batchForm.date || new Date().toISOString().split("T")[0];
+    const today = new Date().toISOString().split("T")[0];
+    // Try multiple APIs as fallback
+    const apis = [
+      date >= today
         ? "https://api.frankfurter.app/latest?from=JPY&to=TWD"
-        : `https://api.frankfurter.app/${date}?from=JPY&to=TWD`;
-      const res = await fetch(url);
-      const data = await res.json();
-      const rate = data.rates?.TWD;
-      if (rate) setBatchForm(f => ({ ...f, [field]: parseFloat(rate.toFixed(4)) }));
-      else alert("無法取得匯率，請手動輸入");
-    } catch { alert("匯率 API 連線失敗"); }
+        : `https://api.frankfurter.app/${date}?from=JPY&to=TWD`,
+      "https://open.er-api.com/v6/latest/JPY",
+      "https://api.exchangerate-api.com/v4/latest/JPY",
+    ];
+    for (const url of apis) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        const rate = data.rates?.TWD;
+        if (rate) {
+          setBatchForm(f => ({ ...f, [field]: parseFloat(rate.toFixed(4)) }));
+          setFetchingRate(null);
+          return;
+        }
+      } catch { /* try next */ }
+    }
+    alert("無法自動抓取匯率，請手動輸入");
     setFetchingRate(null);
   }
 
@@ -278,6 +289,23 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
           shop_id: i.shop_id || null,
         }))
       );
+      // Auto-add to inventory if customer is "現貨"
+      if (form.customer === "現貨") {
+        for (const item of form.items) {
+          if (!item.name || !item.jpy_price) continue;
+          const twdCost = Math.round(Number(item.jpy_price) * jpyRate);
+          await supabase.from("inventory").insert([{
+            name: item.name,
+            jpy_cost: Number(item.jpy_price),
+            twd_cost: twdCost,
+            quantity: Number(item.quantity) || 1,
+            sold: 0,
+            shop_id: item.shop_id || null,
+            note: `自動從批次「${batch.name}」匯入`,
+            status: "庫存中",
+          }]);
+        }
+      }
       setShowOrderForm(false); setEditingOrder(null); setForm(emptyForm);
       onRefresh();
     } catch (e) { alert("儲存失敗：" + e.message); }
@@ -404,11 +432,27 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
     }, {});
   }, [orders, domesticShippings, totalItemCount, jpyRate]);
 
-  // ── Custom price editing ──────────────────────────────────────────────────
-  async function updateCustomPrice(itemId, value) {
+  // ── Custom price editing - local state to avoid refresh on every keystroke ──
+  const [customPrices, setCustomPrices] = useState({});
+
+  // Init local state from orders
+  useEffect(() => {
+    const map = {};
+    orders.forEach(o => (o.order_items || []).forEach(i => {
+      if (i.custom_unit_price != null) map[i.id] = String(i.custom_unit_price);
+    }));
+    setCustomPrices(map);
+  }, [orders]);
+
+  function handleCustomPriceChange(itemId, value) {
+    setCustomPrices(prev => ({ ...prev, [itemId]: value }));
+  }
+
+  async function handleCustomPriceBlur(itemId, value) {
     const parsed = value === "" ? null : parseFloat(value);
+    if (isNaN(parsed) && value !== "") return; // invalid input, skip
     await supabase.from("order_items").update({ custom_unit_price: parsed }).eq("id", itemId);
-    onRefresh();
+    // Don't call onRefresh() - just update local state silently
   }
 
   // ── Payment record editing ────────────────────────────────────────────────
@@ -589,16 +633,19 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             case "rebate": return <td key={col} className="number green">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).ccRebate,0)).toLocaleString()}</td>;
             case "realCost": return <td key={col} className="number">NT${Math.round(activeItems.reduce((s,i)=>s+calcItem(i,jpyRate,proxyRate).realCost,0)).toLocaleString()}</td>;
             case "unitPrice": return <td key={col} className="number">{activeItems.map((i,idx)=>{
-              const c = calcItem(i,jpyRate,proxyRate);
-              return <div key={idx} className="multi-val unit-price-cell">
+              const localVal = customPrices[i.id];
+              const displayItem = localVal !== undefined ? { ...i, custom_unit_price: localVal === "" ? null : parseFloat(localVal) } : i;
+              const c = calcItem(displayItem, jpyRate, proxyRate);
+              return <div key={idx} className="multi-val unit-price-cell" onClick={e => e.stopPropagation()}>
                 <input
                   className="custom-price-input"
                   type="number"
                   title="手動覆蓋定價（留空用計算值）"
-                  placeholder={String(c.isCustomPrice ? "" : c.unitPrice)}
-                  value={i.custom_unit_price != null ? i.custom_unit_price : ""}
-                  onChange={e => updateCustomPrice(i.id, e.target.value)}
-                  onBlur={e => { if(e.target.value === "") updateCustomPrice(i.id, ""); }}
+                  placeholder={String(ceilTo10(Number(i.jpy_price || 0) * proxyRate))}
+                  value={localVal !== undefined ? localVal : (i.custom_unit_price != null ? String(i.custom_unit_price) : "")}
+                  onChange={e => handleCustomPriceChange(i.id, e.target.value)}
+                  onBlur={e => handleCustomPriceBlur(i.id, e.target.value)}
+                  onClick={e => e.stopPropagation()}
                 />
                 {c.isCustomPrice && <span className="custom-price-badge">手動</span>}
               </div>;

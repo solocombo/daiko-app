@@ -16,19 +16,23 @@ export default function BatchList({ batches, orders, onRefresh, onSelectBatch, s
 
   async function fetchJpyRate(dateOverride) {
     setFetchingRate(true);
-    try {
-      const date = dateOverride || form.date || TODAY;
-      const url = date >= TODAY
+    const date = dateOverride || form.date || TODAY;
+    const apis = [
+      date >= TODAY
         ? "https://api.frankfurter.app/latest?from=JPY&to=TWD"
-        : `https://api.frankfurter.app/${date}?from=JPY&to=TWD`;
-      const res = await fetch(url);
-      const data = await res.json();
-      const rate = data.rates?.TWD;
-      if (rate) set("jpy_rate", parseFloat(rate.toFixed(4)));
-      else alert("無法取得匯率，請手動輸入");
-    } catch {
-      alert("匯率 API 連線失敗，請手動輸入");
+        : `https://api.frankfurter.app/${date}?from=JPY&to=TWD`,
+      "https://open.er-api.com/v6/latest/JPY",
+      "https://api.exchangerate-api.com/v4/latest/JPY",
+    ];
+    for (const url of apis) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        const rate = data.rates?.TWD;
+        if (rate) { set("jpy_rate", parseFloat(rate.toFixed(4))); setFetchingRate(false); return; }
+      } catch { /* try next */ }
     }
+    alert("無法自動抓取匯率，請手動輸入");
     setFetchingRate(false);
   }
 

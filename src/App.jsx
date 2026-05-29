@@ -62,9 +62,7 @@ export default function App() {
       <header className="header">
         <div className="header-inner">
           <div className="logo">
-            <span className="logo-jp">代購</span>
             <span className="logo-en">DAIKO</span>
-            <span className="logo-sub">管理系統</span>
           </div>
           <nav className="nav">
             <button className={`nav-btn ${page === "batches" || page === "batch-detail" ? "active" : ""}`} onClick={() => nav("batches")}><span className="nav-icon">📦</span>批次管理</button>
