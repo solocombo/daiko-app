@@ -20,7 +20,10 @@ function calcItem(item, jpyRate, proxyRate) {
   const ccFee = costTwd * 0.015;
   const ccRebate = costTwd * 0.01;
   const realCost = costTwd + ccFee - ccRebate;
-  const unitPrice = ceilTo10(jpyUnit * proxyRate);
+  // Respect custom_unit_price override, same as BatchDetail
+  const unitPrice = item.custom_unit_price != null
+    ? Number(item.custom_unit_price)
+    : ceilTo10(jpyUnit * proxyRate);
   const totalPrice = unitPrice * qty;
   const profit = totalPrice - realCost;
   return { realCost, totalPrice, profit };
@@ -74,8 +77,11 @@ export default function ProfitDashboard({ batches, orders, settings }) {
   const batchProfits = useMemo(() => {
     return filteredBatches.map((batch) => {
       const batchOrders = orders.filter(o => o.batch_id === batch.id);
+      // Skip special customers (same logic as BatchDetail)
+      const skipCustomers = new Set(["現貨", member1, member2].filter(Boolean));
       let totalRealCost = 0, totalPrice = 0;
       batchOrders.forEach(o => {
+        if (skipCustomers.has(o.customer)) return;
         (o.order_items || []).filter(i => !i.not_obtained).forEach(i => {
           const c = calcItem(i, batch.jpy_rate, proxyRate);
           totalRealCost += c.realCost;
