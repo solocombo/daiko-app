@@ -11,7 +11,7 @@ export default function Inventory({ shops }) {
   const [filterStatus, setFilterStatus] = useState("all");
   const [form, setForm] = useState({
     name: "", jpy_cost: "", twd_cost: "", quantity: 1,
-    sold: 0, sell_price: "", shop_id: "", note: "", status: "庫存中",
+    sold: 0, sell_price: "", shipping_cost: "", shop_id: "", note: "", status: "庫存中",
   });
   const [saving, setSaving] = useState(false);
   const [showSellModal, setShowSellModal] = useState(false);
@@ -40,8 +40,8 @@ export default function Inventory({ shops }) {
     setForm({
       name: item.name, jpy_cost: item.jpy_cost || "", twd_cost: item.twd_cost || "",
       quantity: item.quantity || 1, sold: item.sold || 0,
-      sell_price: item.sell_price || "", shop_id: item.shop_id || "",
-      note: item.note || "", status: item.status || "庫存中",
+      sell_price: item.sell_price || "", shipping_cost: item.shipping_cost || "",
+      shop_id: item.shop_id || "", note: item.note || "", status: item.status || "庫存中",
     });
     setShowForm(true);
   }
@@ -54,6 +54,7 @@ export default function Inventory({ shops }) {
       name: form.name, jpy_cost: form.jpy_cost ? parseFloat(form.jpy_cost) : null,
       twd_cost: parseFloat(form.twd_cost), quantity: parseInt(form.quantity) || 1,
       sold: parseInt(form.sold) || 0, sell_price: form.sell_price ? parseFloat(form.sell_price) : null,
+      shipping_cost: form.shipping_cost ? parseFloat(form.shipping_cost) : null,
       shop_id: form.shop_id || null, note: form.note, status: form.status,
     };
     if (editingId) {
@@ -109,16 +110,36 @@ export default function Inventory({ shops }) {
       </div>
 
       {/* Summary */}
-      <div className="credits-summary">
-        <div className="credit-summary-card">
-          <div className="credit-summary-label">現有庫存件數</div>
-          <div className="credit-summary-value twd">{totalStock} 件</div>
-        </div>
-        <div className="credit-summary-card">
-          <div className="credit-summary-label">庫存總成本</div>
-          <div className="credit-summary-value neg">NT${Math.round(totalValue).toLocaleString()}</div>
-        </div>
-      </div>
+      {(() => {
+        const totalRealized = items.reduce((s, i) => {
+          if (!i.sell_price || !i.sold) return s;
+          return s + (Number(i.sell_price) - Number(i.twd_cost) - Number(i.shipping_cost||0)) * i.sold;
+        }, 0);
+        const totalUnrealized = items.filter(i => i.sell_price && i.status !== "已售完").reduce((s, i) => {
+          const rem = i.quantity - (i.sold || 0);
+          return s + (Number(i.sell_price) - Number(i.twd_cost) - Number(i.shipping_cost||0)) * rem;
+        }, 0);
+        return (
+          <div className="credits-summary">
+            <div className="credit-summary-card">
+              <div className="credit-summary-label">現有庫存件數</div>
+              <div className="credit-summary-value twd">{totalStock} 件</div>
+            </div>
+            <div className="credit-summary-card">
+              <div className="credit-summary-label">庫存總成本</div>
+              <div className="credit-summary-value neg">NT${Math.round(totalValue).toLocaleString()}</div>
+            </div>
+            <div className="credit-summary-card">
+              <div className="credit-summary-label">已實現利潤</div>
+              <div className={`credit-summary-value ${totalRealized >= 0 ? "net-big" : "neg"}`}>NT${Math.round(totalRealized).toLocaleString()}</div>
+            </div>
+            <div className="credit-summary-card">
+              <div className="credit-summary-label">未實現利潤（預估）</div>
+              <div className="credit-summary-value" style={{color:"var(--text3)"}}>NT${Math.round(totalUnrealized).toLocaleString()}</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Filter */}
       <div className="filter-bar">
@@ -139,7 +160,10 @@ export default function Inventory({ shops }) {
         <div className="inventory-grid">
           {filtered.map(item => {
             const remaining = item.quantity - (item.sold || 0);
-            const profit = item.sell_price ? (item.sell_price - item.twd_cost) * (item.sold || 0) : null;
+            const shippingCostPer = Number(item.shipping_cost || 0);
+            const profitPerUnit = item.sell_price ? Number(item.sell_price) - Number(item.twd_cost) - shippingCostPer : null;
+            const profit = profitPerUnit !== null ? profitPerUnit * (item.sold || 0) : null;
+            const unrealizedProfit = profitPerUnit !== null ? profitPerUnit * (item.quantity - (item.sold || 0)) : null;
             return (
               <div key={item.id} className={`inventory-card ${item.status === "已售完" ? "inv-sold-out" : ""}`}>
                 <div className="inventory-card-header">
@@ -173,10 +197,28 @@ export default function Inventory({ shops }) {
                       <span className="twd-text">NT${Number(item.sell_price).toLocaleString()} / 件</span>
                     </div>
                   )}
-                  {profit !== null && item.sold > 0 && (
+                  {item.shipping_cost > 0 && (
                     <div className="inv-cost-row">
+                      <span className="inv-cost-label">分攤運費</span>
+                      <span className="neg-text">-NT${Number(item.shipping_cost).toLocaleString()} / 件</span>
+                    </div>
+                  )}
+                  {profitPerUnit !== null && (
+                    <div className="inv-cost-row">
+                      <span className="inv-cost-label">每件淨利</span>
+                      <span className={profitPerUnit >= 0 ? "net-text" : "neg-text"}>NT${Math.round(profitPerUnit).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {profit !== null && item.sold > 0 && (
+                    <div className="inv-cost-row" style={{borderTop:"1px solid var(--border)", paddingTop:"4px", marginTop:"2px"}}>
                       <span className="inv-cost-label">已實現利潤</span>
-                      <span className="net-text">NT${Math.round(profit).toLocaleString()}</span>
+                      <span className={profit >= 0 ? "net-text" : "neg-text"}>NT${Math.round(profit).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {unrealizedProfit !== null && (item.quantity - (item.sold||0)) > 0 && (
+                    <div className="inv-cost-row">
+                      <span className="inv-cost-label">未實現利潤</span>
+                      <span style={{color:"var(--text3)"}}>NT${Math.round(unrealizedProfit).toLocaleString()}</span>
                     </div>
                   )}
                 </div>
@@ -244,6 +286,9 @@ export default function Inventory({ shops }) {
               </label>
               <label className="form-label">售價（NT$）
                 <input className="form-input" type="number" placeholder="對客人收的價格" value={form.sell_price} onChange={e => set("sell_price", e.target.value)} />
+              </label>
+              <label className="form-label">分攤運費（NT$）
+                <input className="form-input" type="number" placeholder="每件分攤的運費成本" value={form.shipping_cost} onChange={e => set("shipping_cost", e.target.value)} />
               </label>
               <label className="form-label">購買網站
                 <select className="form-input" value={form.shop_id} onChange={e => set("shop_id", e.target.value)}>

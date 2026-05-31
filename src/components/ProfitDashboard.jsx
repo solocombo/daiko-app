@@ -39,7 +39,15 @@ export default function ProfitDashboard({ batches, orders, settings }) {
   const [dividendForm, setDividendForm] = useState({ amount: "", note: "", recipient: "", date: new Date().toISOString().split("T")[0] });
   const [savingDividend, setSavingDividend] = useState(false);
 
-  useEffect(() => { fetchDividends(); }, []);
+  const [totalCardCharges, setTotalCardCharges] = useState(0);
+
+  useEffect(() => { fetchDividends(); fetchCardCharges(); }, []);
+
+  async function fetchCardCharges() {
+    const { data } = await supabase.from("card_charges").select("twd_amount");
+    const total = (data || []).reduce((s, c) => s + Number(c.twd_amount), 0);
+    setTotalCardCharges(total);
+  }
 
   async function fetchDividends() {
     const { data } = await supabase.from("dividends").select("*").order("date", { ascending: false });
@@ -109,6 +117,8 @@ export default function ProfitDashboard({ batches, orders, settings }) {
     net: batchProfits.reduce((s, b) => s + b.net, 0),
   }), [batchProfits]);
 
+  const cardChargeGap = overall.totalPrice - totalCardCharges;
+
   const totalDividends = dividends.reduce((s, d) => s + Number(d.amount), 0);
   const undistributed = overall.net - totalDividends;
 
@@ -159,6 +169,14 @@ export default function ProfitDashboard({ batches, orders, settings }) {
           <div className="summary-card">
             <div className="summary-label">吸收運費</div>
             <div className="summary-value neg">-NT${Math.round(overall.absorbed).toLocaleString()}</div>
+          </div>
+          <div className="summary-card">
+            <div className="summary-label">💳 刷卡總金額</div>
+            <div className="summary-value neg">NT${Math.round(totalCardCharges).toLocaleString()}</div>
+          </div>
+          <div className="summary-card" style={{borderColor: cardChargeGap >= 0 ? "var(--green)" : "var(--red)"}}>
+            <div className="summary-label">定價收入 − 刷卡</div>
+            <div className={`summary-value ${cardChargeGap >= 0 ? "net-big" : "neg"}`}>NT${Math.round(cardChargeGap).toLocaleString()}</div>
           </div>
           <div className="summary-card highlight-card">
             <div className="summary-label">總淨利</div>
