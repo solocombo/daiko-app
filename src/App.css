@@ -1494,3 +1494,24 @@ select.form-input { cursor: pointer; }
 }
 .currency-btn:hover { border-color: var(--accent); color: var(--accent); }
 .currency-btn.active { background: var(--accent); border-color: var(--accent); color: #000; }
+
+/* ── Shipping calc tabs ── */
+.shipping-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.shipping-tab-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text2);
+  padding: 6px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.shipping-tab-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+.shipping-tab-btn.active { background: var(--accent2); border-color: var(--accent2); color: white; font-weight: 600; }

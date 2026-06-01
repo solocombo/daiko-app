@@ -123,6 +123,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
   const [showShippingCalc, setShowShippingCalc] = useState(false);
+  const [shippingCalcTab, setShippingCalcTab] = useState("customer");
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [paymentRecords, setPaymentRecords] = useState([]);
@@ -834,8 +835,11 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
       {/* ── Shipping Calc Modal ── */}
       {showShippingCalc && (
         <div className="modal-overlay" onClick={() => setShowShippingCalc(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header"><h2>⚖️ 運費分攤計算</h2><button className="modal-close" onClick={() => setShowShippingCalc(false)}>✕</button></div>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>⚖️ 運費分攤計算</h2>
+              <button className="modal-close" onClick={() => setShowShippingCalc(false)}>✕</button>
+            </div>
             <div className="shipping-calc">
               <div className="calc-summary">
                 <div>國際運費：<strong>
@@ -846,16 +850,53 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
                 </strong></div>
                 <div>總重量（排除未搶到）：<strong>{totalWeightG}g</strong></div>
               </div>
-              <table className="calc-table">
-                <thead><tr><th>客人</th><th>重量(g)</th><th>佔比</th><th>應付運費(NT$)</th></tr></thead>
-                <tbody>
-                  {orders.map(o => {
-                    const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0) * (Number(i.quantity) || 1), 0);
-                    const ratio = totalWeightG > 0 ? (w / totalWeightG * 100).toFixed(1) : 0;
-                    return <tr key={o.id}><td>{o.customer}</td><td className="center">{w}g</td><td className="center">{ratio}%</td><td className="number">NT${Math.round(shippingPerOrder[o.id] || 0).toLocaleString()}</td></tr>;
-                  })}
-                </tbody>
-              </table>
+
+              <div className="shipping-tabs">
+                <button className={`shipping-tab-btn ${shippingCalcTab === "customer" ? "active" : ""}`} onClick={() => setShippingCalcTab("customer")}>依客人</button>
+                <button className={`shipping-tab-btn ${shippingCalcTab === "item" ? "active" : ""}`} onClick={() => setShippingCalcTab("item")}>依商品</button>
+              </div>
+
+              {/* By customer */}
+              <div style={{display: shippingCalcTab === "customer" ? "block" : "none"}}>
+                <table className="calc-table">
+                  <thead><tr><th>客人</th><th>重量(g)</th><th>佔比</th><th>應付運費(NT$)</th></tr></thead>
+                  <tbody>
+                    {orders.map(o => {
+                      const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0) * (Number(i.quantity) || 1), 0);
+                      const ratio = totalWeightG > 0 ? (w / totalWeightG * 100).toFixed(1) : 0;
+                      return <tr key={o.id}><td>{o.customer}</td><td className="center">{w}g</td><td className="center">{ratio}%</td><td className="number">NT${Math.round(shippingPerOrder[o.id] || 0).toLocaleString()}</td></tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* By item */}
+              <div style={{display: shippingCalcTab === "item" ? "block" : "none"}}>
+                <table className="calc-table">
+                  <thead><tr><th>客人</th><th>商品名稱</th><th>數量</th><th>單件重(g)</th><th>總重(g)</th><th>佔比</th><th>分攤運費(NT$)</th></tr></thead>
+                  <tbody>
+                    {orders.flatMap(o =>
+                      (o.order_items || []).filter(i => !i.not_obtained).map((item, idx) => {
+                        const qty = Number(item.quantity) || 1;
+                        const totalW = Number(item.weight_g || 0) * qty;
+                        const ratio = totalWeightG > 0 ? (totalW / totalWeightG * 100).toFixed(1) : 0;
+                        const share = totalWeightG > 0 ? (totalW / totalWeightG) * intlShippingTwd : 0;
+                        return (
+                          <tr key={`${o.id}-${idx}`}>
+                            <td>{o.customer}</td>
+                            <td>{item.name}</td>
+                            <td className="center">{qty}</td>
+                            <td className="center">{Number(item.weight_g || 0)}g</td>
+                            <td className="center">{totalW}g</td>
+                            <td className="center">{ratio}%</td>
+                            <td className="number twd-text">NT${Math.round(share).toLocaleString()}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
             <div className="modal-footer">
               <button className="btn-secondary" onClick={() => setShowShippingCalc(false)}>取消</button>
