@@ -1477,3 +1477,20 @@ select.form-input { cursor: pointer; }
 }
 .item-suggestion-row:hover { background: var(--surface2); }
 .suggestion-price { font-family: var(--font-mono); color: var(--accent2); font-size: 12px; }
+
+/* ── Currency toggle ── */
+.currency-toggle-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.currency-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.currency-btn:hover { border-color: var(--accent); color: var(--accent); }
+.currency-btn.active { background: var(--accent); border-color: var(--accent); color: #000; }

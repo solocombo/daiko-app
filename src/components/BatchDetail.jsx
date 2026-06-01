@@ -136,6 +136,14 @@ export default function BatchDetail({
     if (!batchForm.name || !batchForm.date)
       return alert("請填寫批次名稱與日期");
     setSavingBatch(true);
+    const intlShippingJpy =
+      batchForm.intl_shipping_currency === "twd"
+        ? 0
+        : parseFloat(batchForm.total_intl_shipping_jpy) || 0;
+    const intlShippingTwd =
+      batchForm.intl_shipping_currency === "twd"
+        ? parseFloat(batchForm.total_intl_shipping_twd) || 0
+        : 0;
     await supabase
       .from("batches")
       .update({
@@ -143,8 +151,8 @@ export default function BatchDetail({
         date: batchForm.date,
         jpy_rate: parseFloat(batchForm.jpy_rate),
         shipping_rate: parseFloat(batchForm.shipping_rate),
-        total_intl_shipping_jpy:
-          parseFloat(batchForm.total_intl_shipping_jpy) || 0,
+        total_intl_shipping_jpy: intlShippingJpy,
+        total_intl_shipping_twd: intlShippingTwd,
         absorbed_shipping_twd: parseFloat(batchForm.absorbed_shipping_twd) || 0,
         shop_id: batchForm.shop_id || null,
         note: batchForm.note,
@@ -366,16 +374,15 @@ export default function BatchDetail({
   );
 
   const shippingPerOrder = useMemo(() => {
-    if (!batch.total_intl_shipping_jpy || totalWeightG === 0) return {};
-    const totalShippingTwd = batch.total_intl_shipping_jpy * shippingRate;
+    if (intlShippingTwd === 0 || totalWeightG === 0) return {};
     return orders.reduce((acc, o) => {
       const w = (o.order_items || [])
         .filter((i) => !i.not_obtained)
         .reduce((s, i) => s + Number(i.weight_g || 0), 0);
-      acc[o.id] = totalWeightG > 0 ? (w / totalWeightG) * totalShippingTwd : 0;
+      acc[o.id] = totalWeightG > 0 ? (w / totalWeightG) * intlShippingTwd : 0;
       return acc;
     }, {});
-  }, [orders, batch, totalWeightG, shippingRate]);
+  }, [orders, batch, totalWeightG, intlShippingTwd]);
 
   function orderTotalDue(order) {
     const activeItems = (order.order_items || []).filter(
@@ -1645,19 +1652,79 @@ export default function BatchDetail({
                   </button>
                 </div>
               </label>
-              <label className="form-label">
-                國際運費（日幣 ¥）
-                <input
-                  className="form-input"
-                  type="number"
-                  value={batchForm.total_intl_shipping_jpy}
-                  onChange={(e) =>
-                    setBatchForm((f) => ({
-                      ...f,
-                      total_intl_shipping_jpy: e.target.value,
-                    }))
-                  }
-                />
+              <label className="form-label" style={{ gridColumn: "1/-1" }}>
+                國際運費
+                <div className="currency-toggle-row">
+                  <button
+                    type="button"
+                    className={`currency-btn ${batchForm.intl_shipping_currency === "jpy" ? "active" : ""}`}
+                    onClick={() =>
+                      setBatchForm((f) => ({
+                        ...f,
+                        intl_shipping_currency: "jpy",
+                      }))
+                    }
+                  >
+                    日幣 ¥
+                  </button>
+                  <button
+                    type="button"
+                    className={`currency-btn ${batchForm.intl_shipping_currency === "twd" ? "active" : ""}`}
+                    onClick={() =>
+                      setBatchForm((f) => ({
+                        ...f,
+                        intl_shipping_currency: "twd",
+                      }))
+                    }
+                  >
+                    台幣 NT$
+                  </button>
+                  {batchForm.intl_shipping_currency === "jpy" ? (
+                    <input
+                      className="form-input"
+                      style={{ flex: 1 }}
+                      type="number"
+                      placeholder="日幣金額"
+                      value={batchForm.total_intl_shipping_jpy}
+                      onChange={(e) =>
+                        setBatchForm((f) => ({
+                          ...f,
+                          total_intl_shipping_jpy: e.target.value,
+                        }))
+                      }
+                    />
+                  ) : (
+                    <input
+                      className="form-input"
+                      style={{ flex: 1 }}
+                      type="number"
+                      placeholder="台幣金額"
+                      value={batchForm.total_intl_shipping_twd}
+                      onChange={(e) =>
+                        setBatchForm((f) => ({
+                          ...f,
+                          total_intl_shipping_twd: e.target.value,
+                        }))
+                      }
+                    />
+                  )}
+                  {batchForm.intl_shipping_currency === "jpy" &&
+                    batchForm.total_intl_shipping_jpy > 0 && (
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          color: "var(--text3)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        ≈ NT$
+                        {Math.round(
+                          batchForm.total_intl_shipping_jpy *
+                            (batchForm.shipping_rate || shippingRate),
+                        ).toLocaleString()}
+                      </span>
+                    )}
+                </div>
               </label>
               <label className="form-label">
                 吸收運費（台幣 NT$）
@@ -1753,14 +1820,9 @@ export default function BatchDetail({
                 <div>
                   國際運費：
                   <strong>
-                    ¥
-                    {Number(
-                      batch.total_intl_shipping_jpy || 0,
-                    ).toLocaleString()}{" "}
-                    × {shippingRate}（運費匯率）= NT$
-                    {Math.round(
-                      (batch.total_intl_shipping_jpy || 0) * shippingRate,
-                    ).toLocaleString()}
+                    {batch.total_intl_shipping_twd > 0
+                      ? `NT$${Math.round(batch.total_intl_shipping_twd).toLocaleString()}（直接台幣）`
+                      : `¥${Number(batch.total_intl_shipping_jpy || 0).toLocaleString()} × ${shippingRate} = NT$${Math.round(intlShippingTwd).toLocaleString()}`}
                   </strong>
                 </div>
                 <div>
