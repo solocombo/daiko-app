@@ -225,7 +225,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
     : Number(batch.total_intl_shipping_jpy || 0) * shippingRate;
 
   const totalWeightG = useMemo(() =>
-    orders.reduce((sum, o) => sum + (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0), 0), 0),
+    orders.reduce((sum, o) => sum + (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0) * (Number(i.quantity) || 1), 0), 0),
     [orders]);
 
   const shippingPerOrder = useMemo(() => {
@@ -234,7 +234,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
       : Number(batch.total_intl_shipping_jpy || 0) * (batch.shipping_rate || batch.jpy_rate);
     if (twd === 0 || totalWeightG === 0) return {};
     return orders.reduce((acc, o) => {
-      const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0), 0);
+      const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0) * (Number(i.quantity) || 1), 0);
       acc[o.id] = totalWeightG > 0 ? (w / totalWeightG) * twd : 0;
       return acc;
     }, {});
@@ -658,7 +658,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             case "due": va = orderTotalDue(a); vb = orderTotalDue(b); break;
             case "paid": va = orderPaid(a.id); vb = orderPaid(b.id); break;
             case "remaining": va = orderTotalDue(a)-orderPaid(a.id); vb = orderTotalDue(b)-orderPaid(b.id); break;
-            case "weight": va = activeA.reduce((s,i)=>s+Number(i.weight_g||0),0); vb = activeB.reduce((s,i)=>s+Number(i.weight_g||0),0); break;
+            case "weight": va = activeA.reduce((s,i)=>s+Number(i.weight_g||0)*(Number(i.quantity)||1),0); vb = activeB.reduce((s,i)=>s+Number(i.weight_g||0)*(Number(i.quantity)||1),0); break;
             default: return 0;
           }
           if (typeof va === "string") return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -707,7 +707,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
             })}</td>;
             case "totalPrice": return <td key={col} className="number twd">NT${Math.round(totalOrderPrice).toLocaleString()}</td>;
             case "profit": return <td key={col} className={skipProfitCustomers.has(order.customer) ? "number" : "number net"}>{skipProfitCustomers.has(order.customer) ? <span style={{color:"var(--text3)"}}>—</span> : `NT$${Math.round(totalProfit).toLocaleString()}`}</td>;
-            case "weight": return <td key={col} className="center">{activeItems.reduce((s,i)=>s+Number(i.weight_g||0),0)}g</td>;
+            case "weight": return <td key={col} className="center">{activeItems.reduce((s,i)=>s+Number(i.weight_g||0)*(Number(i.quantity)||1),0)}g</td>;
             case "forwarder": return <td key={col} className="center"><span className="forwarder-tag">{fwName}</span></td>;
             case "shipping": return <td key={col} className="number">{order.shipping_twd>0?`NT$${Math.round(order.shipping_twd).toLocaleString()}`:"—"}</td>;
             case "payMethod": return <td key={col} className="center"><span className={`method-tag ${order.payment_method==="取付"?"method-cod":""}`}>{order.payment_method}</span></td>;
@@ -850,7 +850,7 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
                 <thead><tr><th>客人</th><th>重量(g)</th><th>佔比</th><th>應付運費(NT$)</th></tr></thead>
                 <tbody>
                   {orders.map(o => {
-                    const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0), 0);
+                    const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0) * (Number(i.quantity) || 1), 0);
                     const ratio = totalWeightG > 0 ? (w / totalWeightG * 100).toFixed(1) : 0;
                     return <tr key={o.id}><td>{o.customer}</td><td className="center">{w}g</td><td className="center">{ratio}%</td><td className="number">NT${Math.round(shippingPerOrder[o.id] || 0).toLocaleString()}</td></tr>;
                   })}

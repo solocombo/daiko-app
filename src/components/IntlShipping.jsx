@@ -95,7 +95,7 @@ export default function IntlShipping({ batches, orders }) {
     batches.forEach(b => {
       const batchOrders = orders.filter(o => o.batch_id === b.id);
       map[b.id] = batchOrders.reduce((sum, o) =>
-        sum + (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0), 0), 0);
+        sum + (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0) * (Number(i.quantity) || 1), 0), 0);
     });
     return map;
   }, [batches, orders]);
