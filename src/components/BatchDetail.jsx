@@ -219,18 +219,26 @@ export default function BatchDetail({ batch, orders, forwarders, shops, onRefres
   }
 
   // ── Shipping ──────────────────────────────────────────────────────────────
+  // Must be defined before useMemo that uses it
+  const intlShippingTwd = batch.total_intl_shipping_twd && Number(batch.total_intl_shipping_twd) > 0
+    ? Number(batch.total_intl_shipping_twd)
+    : Number(batch.total_intl_shipping_jpy || 0) * shippingRate;
+
   const totalWeightG = useMemo(() =>
     orders.reduce((sum, o) => sum + (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0), 0), 0),
     [orders]);
 
   const shippingPerOrder = useMemo(() => {
-    if (intlShippingTwd === 0 || totalWeightG === 0) return {};
+    const twd = batch.total_intl_shipping_twd && Number(batch.total_intl_shipping_twd) > 0
+      ? Number(batch.total_intl_shipping_twd)
+      : Number(batch.total_intl_shipping_jpy || 0) * (batch.shipping_rate || batch.jpy_rate);
+    if (twd === 0 || totalWeightG === 0) return {};
     return orders.reduce((acc, o) => {
       const w = (o.order_items || []).filter(i => !i.not_obtained).reduce((s, i) => s + Number(i.weight_g || 0), 0);
-      acc[o.id] = totalWeightG > 0 ? (w / totalWeightG) * intlShippingTwd : 0;
+      acc[o.id] = totalWeightG > 0 ? (w / totalWeightG) * twd : 0;
       return acc;
     }, {});
-  }, [orders, batch, totalWeightG, intlShippingTwd]);
+  }, [orders, batch, totalWeightG]);
 
   function orderTotalDue(order) {
     const activeItems = (order.order_items || []).filter(i => !i.not_obtained);
